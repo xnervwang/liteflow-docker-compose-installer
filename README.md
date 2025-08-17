@@ -1,1 +1,1 @@
-# liteflow-conf-installer
+docker-compose-installer
