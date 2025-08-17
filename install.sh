@@ -1,10 +1,10 @@
 #!/usr/bin/env sh
-# install.sh — 拉取 liteflow.conf、对应 compose YAML、watch.sh、ddns-go 配置，并启动 compose
+# install.sh — 拉取 liteflow.conf、compose YAML、watch.sh、(可选) ddns-go 配置，并启动 compose
 # Usage:
-#   ./install.sh [-y] [<host-name>]
+#   ./install.sh [-y] [<host-name>] [<external-domain>] [<internal-domain>]
 # Examples:
 #   ./install.sh -y
-#   ./install.sh node-01.example.internal
+#   ./install.sh node-01.example.internal pub.example.com intranet.local
 #
 # 非交互模式（跳过询问）：
 #   ./install.sh -y
@@ -14,6 +14,7 @@
 #   CONF_REPO  COMPOSE_REPO  FETCH_URL  WATCH_URL
 #   DEST_CONF  MODE  COMPOSE_SRC_PATH  COMPOSE_DEST_FILE
 #   DDNS_REPO  DDNS_CONF_SRC_PATH  DEST_DDNS_CONF
+#   EXTERNAL_URL  INTERNAL_URL
 
 set -eu
 
@@ -31,13 +32,17 @@ set -eu
 : "${DDNS_REPO:=${COMPOSE_REPO}}"
 : "${DDNS_CONF_SRC_PATH:=ddns_go/ddns_go_config.yaml}"
 : "${DEST_DDNS_CONF:=ddns_go_config.yaml}"
+
+# 占位符替换所需域名（可由位置参数或环境变量提供）
+: "${EXTERNAL_URL:=}"   # 公网域名 → <external_url>
+: "${INTERNAL_URL:=}"   # 内网域名 → <internal_url>
 # ----------------------------------------
 
 usage() {
-  echo "Usage: $0 [-y] [<host-name>]"
+  echo "Usage: $0 [-y] [<host-name>] [<external-domain>] [<internal-domain>]"
   echo "Examples:"
   echo "  $0 -y"
-  echo "  $0 node-01.example.internal"
+  echo "  $0 node-01.example.internal pub.example.com intranet.local"
   exit 1
 }
 
@@ -48,9 +53,14 @@ if [ "${1:-}" = "-y" ]; then YES=1; shift; fi
 
 # host 参数可选：缺省则取当前机器 hostname
 HOST="${1:-}"
-if [ -z "$HOST" ]; then
+if [ -n "$HOST" ]; then shift; fi
+if [ -z "${HOST:-}" ]; then
   HOST="$(hostname -f 2>/dev/null || hostname 2>/dev/null || uname -n)"
 fi
+
+# 位置参数 2/3：外网/内网域名（若未提供则保持环境变量或为空）
+[ -n "${1:-}" ] && EXTERNAL_URL="${1}"; [ -n "${1:-}" ] && shift || true
+[ -n "${1:-}" ] && INTERNAL_URL="${1}"; [ -n "${1:-}" ] && shift || true
 
 # 依据 host 推导远端 compose 路径，可用 COMPOSE_SRC_PATH 覆盖
 : "${COMPOSE_SRC_PATH:=${HOST}.yaml}"
@@ -140,15 +150,54 @@ echo "[install] downloading watch.sh: $WATCH_URL -> ./watch.sh"
 dl "$WATCH_URL" ./watch.sh || { echo "Error: cannot fetch watch.sh"; exit 15; }
 chmod +x ./watch.sh
 
-# ---------- 拉 ddns-go 配置（从 compose 仓库） ----------
-echo "[install] fetching ddns-go config from $DDNS_REPO : $DDNS_CONF_SRC_PATH -> ./$DEST_DDNS_CONF ($MODE)"
-if ! bash "$FETCH_SH" git "$MODE" "$DDNS_REPO" "$DDNS_CONF_SRC_PATH" "./$DEST_DDNS_CONF"; then
-  echo "Error: failed to fetch ddns-go config. Check:"
-  echo "  - repo access (SSH key/permissions)"
-  echo "  - path exists in repo: $DDNS_CONF_SRC_PATH"
-  exit 19
+# ---------- 如 compose 包含 ddns-go，则拉取配置并替换占位符 ----------
+_has_ddns_go=1
+awk 'BEGIN{in_s=0;found=0}
+  /^[[:space:]]*services:[[:space:]]*$/ {in_s=1;next}
+  in_s && /^[^[:space:]]/ {in_s=0}
+  in_s && $0 ~ /^[[:space:]]+ddns-go:[[:space:]]*$/ {found=1}
+  END{exit(found?0:1)}' "$COMPOSE_DEST_FILE" || _has_ddns_go=0
+
+if [ "$_has_ddns_go" -eq 0 ]; then
+  # 兜底：检查 container_name 是否为 ddns-go
+  awk 'BEGIN{found=0}
+    $1 ~ /container_name:/ {
+      s=$0; sub(/.*container_name:[[:space:]]*/,"",s);
+      gsub(/["'\''"]/, "", s); sub(/[[:space:]]+$/, "", s);
+      if (s=="ddns-go") found=1
+    }
+    END{exit(found?0:1)}' "$COMPOSE_DEST_FILE" && _has_ddns_go=1 || true
 fi
-[ -s "./$DEST_DDNS_CONF" ] || { echo "Error: ddns-go config missing or empty: $DEST_DDNS_CONF"; exit 20; }
+
+if [ "$_has_ddns_go" -eq 1 ]; then
+  echo "[install] compose includes ddns-go; preparing ddns-go config"
+  if [ -z "${EXTERNAL_URL:-}" ] || [ -z "${INTERNAL_URL:-}" ]; then
+    echo "Error: ddns-go present. You must provide EXTERNAL_URL and INTERNAL_URL."
+    echo "Usage: $0 [-y] [<host-name>] <external-domain> <internal-domain>"
+    echo "       or set EXTERNAL_URL / INTERNAL_URL env vars."
+    exit 21
+  fi
+
+  echo "[install] fetching ddns-go config from $DDNS_REPO : $DDNS_CONF_SRC_PATH -> ./$DEST_DDNS_CONF ($MODE)"
+  if ! bash "$FETCH_SH" git "$MODE" "$DDNS_REPO" "$DDNS_CONF_SRC_PATH" "./$DEST_DDNS_CONF"; then
+    echo "Error: failed to fetch ddns-go config. Check:"
+    echo "  - repo access (SSH key/permissions)"
+    echo "  - path exists in repo: $DDNS_CONF_SRC_PATH"
+    exit 19
+  fi
+  [ -s "./$DEST_DDNS_CONF" ] || { echo "Error: ddns-go config missing or empty: $DEST_DDNS_CONF"; exit 20; }
+
+  echo "[install] applying placeholders in $DEST_DDNS_CONF"
+  _ext="${EXTERNAL_URL}"
+  _int="${INTERNAL_URL}"
+  tmp_ddns="$TMPDIR/ddns.$$"
+  sed -e "s|<external_url>|$(printf '%s' "$_ext" | sed 's/[&]/\\&/g')|g" \
+      -e "s|<internal_url>|$(printf '%s' "$_int" | sed 's/[&]/\\&/g')|g" \
+      "./$DEST_DDNS_CONF" > "$tmp_ddns"
+  mv -f "$tmp_ddns" "./$DEST_DDNS_CONF"
+else
+  echo "[install] compose has no ddns-go service; skip ddns-go config."
+fi
 
 # ---------- 解析 compose 中的 container_name 并处理冲突 ----------
 conflict_names="$(awk '
@@ -211,4 +260,4 @@ echo "[install] done."
 echo "Files:"
 echo "  $(pwd)/$DEST_CONF"
 echo "  $(pwd)/$COMPOSE_DEST_FILE"
-echo "  $(pwd)/$DEST_DDNS_CONF"
+[ -f "./$DEST_DDNS_CONF" ] && echo "  $(pwd)/$DEST_DDNS_CONF" || true
