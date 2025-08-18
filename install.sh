@@ -1,10 +1,10 @@
 #!/usr/bin/env sh
 # install.sh — 拉取 liteflow.conf、compose YAML、watch.sh，并启动 compose
 # Usage:
-#   ./install.sh [-y] [<host-name>] [<external-domain>] [<internal-domain>]
+#   ./install.sh [-y] [<host-name>]
 # Examples:
 #   ./install.sh -y
-#   ./install.sh node-01.example.internal pub.example.com intranet.local
+#   ./install.sh node-01.example.internal
 #
 # 非交互模式（跳过询问）：
 #   ./install.sh -y
@@ -13,7 +13,6 @@
 # 可用环境变量覆盖：
 #   CONF_REPO  COMPOSE_REPO  FETCH_URL  WATCH_URL
 #   DEST_CONF  MODE  COMPOSE_SRC_PATH  COMPOSE_DEST_FILE
-#   EXTERNAL_URL  INTERNAL_URL
 
 set -eu
 
@@ -26,17 +25,13 @@ set -eu
 : "${DEST_CONF:=liteflow.conf}"         # 本地保存的 liteflow 配置
 : "${MODE:=--force}"                    # --force | --backup
 : "${COMPOSE_DEST_FILE:=compose.yaml}"  # 本地保存的 compose 文件名
-
-# 占位符替换所需域名（可由位置参数或环境变量提供）
-: "${EXTERNAL_URL:=}"   # 公网域名 → <external_url>
-: "${INTERNAL_URL:=}"   # 内网域名 → <internal_url>
 # ----------------------------------------
 
 usage() {
-  echo "Usage: $0 [-y] [<host-name>] [<external-domain>] [<internal-domain>]"
+  echo "Usage: $0 [-y] [<host-name>]"
   echo "Examples:"
   echo "  $0 -y"
-  echo "  $0 node-01.example.internal pub.example.com intranet.local"
+  echo "  $0 node-01.example.internal"
   exit 1
 }
 
@@ -48,15 +43,12 @@ if [ "${1:-}" = "-y" ]; then YES=1; shift; fi
 # host 参数可选：缺省则取当前机器 hostname
 HOST="${1:-}"
 if [ -n "$HOST" ]; then shift; fi
-if [ -z "${HOST:-}" ]; then
-  HOST="$(hostname -f 2>/dev/null || hostname 2>/dev/null || uname -n)"
-fi
+[ -z "${HOST:-}" ] && HOST="$(hostname -f 2>/dev/null || hostname 2>/dev/null || uname -n)"
 
-# 位置参数 2/3：外网/内网域名（若未提供则保持环境变量或为空）
-[ -n "${1:-}" ] && EXTERNAL_URL="${1}"; [ -n "${1:-}" ] && shift || true
-[ -n "${1:-}" ] && INTERNAL_URL="${1}"; [ -n "${1:-}" ] && shift || true
+# 额外参数不应存在
+[ $# -gt 0 ] && usage
 
-# 依据 host 推导远端 compose 路径，可用 COMPOSE_SRC_PATH 覆盖
+# 依据 host 推导远端 compose/conf 路径（可用 COMPOSE_SRC_PATH 覆盖）
 : "${COMPOSE_SRC_PATH:=${HOST}.yaml}"
 CONF_SRC_PATH="output/${HOST}.conf"
 
@@ -72,7 +64,7 @@ command -v curl >/dev/null 2>&1 && DOWNLOADER="curl"
 need git
 need bash
 # docker / compose
-if command -v docker >/dev/null 2>&1; then :; else echo "Error: 'docker' not found."; exit 127; fi
+if ! command -v docker >/dev/null 2>&1; then echo "Error: 'docker' not found."; exit 127; fi
 DCOMPOSE=""
 if docker compose version >/dev/null 2>&1; then DCOMPOSE="docker compose"
 elif command -v docker-compose >/dev/null 2>&1; then DCOMPOSE="docker-compose"
