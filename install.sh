@@ -48,25 +48,6 @@ if [ -n "$HOST" ]; then shift; fi
 # 额外参数不应存在
 [ $# -gt 0 ] && usage
 
-# ---------- 从 HOST 提取 nodeid（形如 .node35.，node 后必须是数字） ----------
-# 仅当 token 前后各有一个英文句号时才匹配；未匹配到则报错退出
-NODEID="$(printf '%s\n' "$HOST" | sed -n 's/.*\.\(node[0-9][0-9]*\)\..*/\1/p')"
-if [ -z "${NODEID:-}" ]; then
-  echo "Error: cannot extract nodeid from hostname '$HOST'."
-  echo "Expected pattern: host contains '.node<digits>.' (e.g., 'raspberrypi.node35.us')."
-  exit 22
-fi
-echo "[install] detected nodeid: ${NODEID}"
-
-# 将 DEST_CONF 文件名改为带 nodeid 的形式：
-# - 若以 .conf 结尾：在扩展名前插入 -nodeXX
-# - 否则：直接追加 -nodeXX
-case "$DEST_CONF" in
-  *.conf) DEST_CONF="${DEST_CONF%.conf}-${NODEID}.conf" ;;
-  *)      DEST_CONF="${DEST_CONF}-${NODEID}" ;;
-esac
-echo "[install] DEST_CONF set to: ${DEST_CONF}"
-
 # 依据 host 推导远端 compose/conf 路径（可用 COMPOSE_SRC_PATH 覆盖）
 : "${COMPOSE_SRC_PATH:=${HOST}.yaml}"
 CONF_SRC_PATH="output/${HOST}.conf"
