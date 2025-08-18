@@ -201,7 +201,7 @@ cat > "$ENV_FILE" <<EOF
 FETCH_URL=$FETCH_URL
 CONF_REPO=$CONF_REPO
 CONF_SRC=output/${HOST}.conf
-DEST_FILE=/app/etc/liteflow.conf
+DEST_FILE=/app/etc/${DEST_CONF}
 INTERVAL=60
 EOF
 
