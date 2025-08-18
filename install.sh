@@ -30,7 +30,7 @@ set -eu
 
 # ddns-go 相关（从 compose 仓库取）
 : "${DDNS_REPO:=${COMPOSE_REPO}}"
-: "${DDNS_CONF_SRC_PATH:=ddns_go/ddns_go_config.yaml}"
+: "${DDNS_CONF_SRC_PATH:=ddns-go/ddns_go_config.yaml}"
 : "${DEST_DDNS_CONF:=ddns_go_config.yaml}"
 
 # 占位符替换所需域名（可由位置参数或环境变量提供）
