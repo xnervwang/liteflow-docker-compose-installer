@@ -81,7 +81,7 @@ else
 fi
 
 # SSH 仅在 repo 为 SSH URL 时要求
-case "$CONF_REPO $COMPOSE_REPO $DDNS_REPO" in
+case "$CONF_REPO $COMPOSE_REPO" in
   *git@*|*ssh://*) need ssh ;;
 esac
 
