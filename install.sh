@@ -178,9 +178,9 @@ docker_build_here() {
   [ "$subdir" != "." ] && ctx="$workdir/$subdir"
   echo "[install] building image $tag from $ctx ${dfile:+(Dockerfile=$dfile)}"
   if [ -n "$dfile" ]; then
-    docker build -t "$tag" -f "$ctx/$dfile" "$ctx"
+    docker build --network host -t "$tag" -f "$ctx/$dfile" "$ctx"
   else
-    docker build -t "$tag" "$ctx"
+    docker build --network host -t "$tag" "$ctx"
   fi
 }
 
