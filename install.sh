@@ -83,8 +83,8 @@ command -v jq  >/dev/null 2>&1 || missing="$missing jq"
 command -v cmp >/dev/null 2>&1 || missing="$missing cmp"
 if [ -n "$missing" ]; then
   echo "Warning: optional tools missing:${missing}"
-  echo "  - jq  : 用于 JSON 校验（缺失则跳过校验）"
-  echo "  - cmp : 用于无差异检测（缺失则总是覆盖或备份）"
+  echo "  - jq  : 用于 JSON 校验（缺失则跳过校验）
+  - cmp : 用于无差异检测（缺失则总是覆盖或备份）"
   if [ "$YES" -ne 1 ]; then
     printf "Continue without these? [y/N]: "
     read ans || ans=""
@@ -135,6 +135,62 @@ fi
 echo "[install] downloading watch.sh: $WATCH_URL -> ./watch.sh"
 dl "$WATCH_URL" ./watch.sh || { echo "Error: cannot fetch watch.sh"; exit 15; }
 chmod +x ./watch.sh
+
+###############################################################################
+# 新增：从 Git 拉取/更新源码并构建两张镜像
+# - xnervwang/ddns-go-docker:main  （源：ddns-go-docker.git @ main）
+# - xnervwang/liteflow:venus       （源：Liteflow.git @ venus）
+###############################################################################
+# 可被环境变量覆盖的默认设置
+: "${DDNS_BUILD_REPO:=https://github.com/xnervwang/ddns-go-docker.git}"
+: "${DDNS_BUILD_BRANCH:=main}"
+: "${DDNS_BUILD_WORKDIR:=/tmp/ddns-go-docker}"
+: "${DDNS_BUILD_CONTEXT_SUBDIR:=.}"
+: "${DDNS_BUILD_DOCKERFILE:=}"             # 为空则用默认 Dockerfile
+: "${DDNS_BUILD_TAG:=xnervwang/ddns-go-docker:main}"
+
+: "${LITEFLOW_BUILD_REPO:=https://github.com/xnervwang/Liteflow.git}"
+: "${LITEFLOW_BUILD_BRANCH:=venus}"
+: "${LITEFLOW_BUILD_WORKDIR:=/tmp/Liteflow}"
+: "${LITEFLOW_BUILD_CONTEXT_SUBDIR:=.}"
+: "${LITEFLOW_BUILD_DOCKERFILE:=}"         # 为空则用默认 Dockerfile
+: "${LITEFLOW_BUILD_TAG:=xnervwang/liteflow:venus}"
+
+git_sync_reset() {
+  # git_sync_reset <repo> <branch> <workdir>
+  repo="$1"; branch="$2"; workdir="$3"
+  if [ -d "$workdir/.git" ]; then
+    echo "[install] updating $workdir -> origin/$branch"
+    git -C "$workdir" fetch --all --prune
+    git -C "$workdir" checkout "$branch"
+    git -C "$workdir" reset --hard "origin/$branch"
+  else
+    echo "[install] cloning $repo#$branch -> $workdir"
+    rm -rf "$workdir"
+    git clone --depth 1 --branch "$branch" "$repo" "$workdir"
+  fi
+}
+
+docker_build_here() {
+  # docker_build_here <workdir> <context_subdir> <dockerfile> <tag>
+  workdir="$1"; subdir="$2"; dfile="$3"; tag="$4"
+  ctx="$workdir"
+  [ "$subdir" != "." ] && ctx="$workdir/$subdir"
+  echo "[install] building image $tag from $ctx ${dfile:+(Dockerfile=$dfile)}"
+  if [ -n "$dfile" ]; then
+    docker build -t "$tag" -f "$ctx/$dfile" "$ctx"
+  else
+    docker build -t "$tag" "$ctx"
+  fi
+}
+
+# 1) ddns-go-docker -> xnervwang/ddns-go-docker:main
+git_sync_reset "$DDNS_BUILD_REPO" "$DDNS_BUILD_BRANCH" "$DDNS_BUILD_WORKDIR"
+docker_build_here "$DDNS_BUILD_WORKDIR" "$DDNS_BUILD_CONTEXT_SUBDIR" "$DDNS_BUILD_DOCKERFILE" "$DDNS_BUILD_TAG"
+
+# 2) Liteflow -> xnervwang/liteflow:venus
+git_sync_reset "$LITEFLOW_BUILD_REPO" "$LITEFLOW_BUILD_BRANCH" "$LITEFLOW_BUILD_WORKDIR"
+docker_build_here "$LITEFLOW_BUILD_WORKDIR" "$LITEFLOW_BUILD_CONTEXT_SUBDIR" "$LITEFLOW_BUILD_DOCKERFILE" "$LITEFLOW_BUILD_TAG"
 
 # ---------- 解析 compose 中的 container_name 并处理冲突 ----------
 conflict_names="$(awk '
