@@ -21,8 +21,8 @@ services:
       test: ["CMD-SHELL", "[ -s /app/etc/liteflow.conf ] && pgrep -x liteflow >/dev/null"]
       interval: 5s
       timeout: 3s
-      retries: 12
-      start_period: 15s
+      retries: 5
+      start_period: 5s
     network_mode: host
     init: true
     environment:
@@ -69,8 +69,8 @@ services:
       test: ["CMD-SHELL","[ -s /app/etc/${CONF_FILE} ] && [ -f ${PULLER_READY_FLAG} ]"]
       interval: 5s
       timeout: 3s
-      retries: 12
-      start_period: 10s
+      retries: 5
+      start_period: 5s
     environment:
       TZ: ${TZ}
       # —— 运行模式（git）：——
