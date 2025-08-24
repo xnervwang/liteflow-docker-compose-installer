@@ -3,7 +3,7 @@ services:
     profiles: ["liteflow"]
     build:
       context: https://github.com/xnervwang/liteflow.git#master
-    args:
+      args:
         SOURCE: local         # 强制使用构建上下文里的源码
         BRANCH: venus         # 可写可不写；SOURCE=local 时不生效
     image: liteflow:venus
