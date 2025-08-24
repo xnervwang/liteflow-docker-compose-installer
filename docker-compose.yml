@@ -53,7 +53,7 @@ services:
     image: xnervwang/liteflow-conf-puller:main
     pull_policy: never
     healthcheck:
-      test: ["CMD-SHELL","[ -s /app/etc/liteflow.conf ] && [ -f /run/puller.ready ]"]
+      test: ["CMD-SHELL","[ -s /app/etc/${CONF_FILE} ] && [ -f ${READY_FLAG} ]"]
       interval: 5s
       timeout: 3s
       retries: 12
@@ -65,6 +65,7 @@ services:
       CONF_SRC: output/${HOSTNAME}.conf
       DEST_FILE: /app/etc/${CONF_FILE}
       INTERVAL: "${INTERVAL}"
+      READY_FLAG: ${READY_FLAG}
       # BACKUP: "1"                                  # 可选：覆盖前备份
       FORCE: "1"                                   # 可选：未开启 BACKUP 时允许覆盖
     volumes:
