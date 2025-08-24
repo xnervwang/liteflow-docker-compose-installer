@@ -18,7 +18,7 @@ services:
     init: true
     environment:
       TZ: ${TZ}
-      confpath: /app/etc/liteflow.conf
+      confpath: /app/etc/${CONF_FILE}
     volumes:
       # Don't mount the file directly, otherwise before puller gets the file, docker would create
       # a folder with the conf file path wrongly.
@@ -35,7 +35,7 @@ services:
       TZ: ${TZ}
       DOCKER_API: ${DOCKER_API}
       TARGET: "${COMPOSE_PROJECT_NAME}_liteflow_1"
-      FILE: /app/etc/liteflow.conf
+      FILE: /app/etc/${CONF_FILE}
     volumes:
       # 必须映射整个目录，不能仅映射单个liteflow.conf文件，否则mv等动作无法被捕捉。
       - ${CONF_DIR}:/app/etc:ro
@@ -52,7 +52,7 @@ services:
       # —— 运行模式（git）：——
       CONF_REPO: ${CONF_REPO}
       CONF_SRC: output/${HOSTNAME}.conf
-      DEST_FILE: /app/etc/liteflow.conf
+      DEST_FILE: /app/etc/${CONF_FILE}
       INTERVAL: "${INTERVAL}"
       # BACKUP: "1"                                  # 可选：覆盖前备份
       FORCE: "1"                                   # 可选：未开启 BACKUP 时允许覆盖
