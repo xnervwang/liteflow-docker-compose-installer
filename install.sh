@@ -156,7 +156,7 @@ git_sparse_fetch() {
   echo "[fetch] git sparse: ${repo} (branch=$branch, path=$path) -> $dest"
 
   tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
-  GIT_TERMINAL_PROMPT=0 git -C "$tmp" init >/dev/null
+  GIT_TERMINAL_PROMPT=0 git -C "$tmp" init -q -b main >/dev/null
 
   # SSH 私钥
   ssh_cmd=""
@@ -189,7 +189,7 @@ git_sparse_fetch() {
       git -C "$tmp" -c http.extraHeader="Authorization: Bearer ${TOKEN:-${GITHUB_TOKEN}}" fetch --depth 1 origin "$branch" >/dev/null
     else
       # 无 token，尝试公共访问
-      git -C "$tmp" fetch --depth 1 origin "$branch" >/dev/null 2>&1 || {
+      git -C "$tmp" fetch -q --depth 1 origin "$branch" >/dev/null 2>&1 || {
         echo "Error: https git needs TOKEN or AUTH_HEADER for private repo"
         exit 13
       }
@@ -199,11 +199,11 @@ git_sparse_fetch() {
     if [ -n "$ssh_cmd" ]; then
       GIT_SSH_COMMAND="$ssh_cmd" git -C "$tmp" fetch --depth 1 origin "$branch" >/dev/null
     else
-      git -C "$tmp" fetch --depth 1 origin "$branch" >/dev/null
+      git -C "$tmp" fetch -q --depth 1 origin "$branch" >/dev/null
     fi
   fi
 
-  git -C "$tmp" checkout FETCH_HEAD >/dev/null
+  git -C "$tmp" -c advice.detachedHead=false checkout -q FETCH_HEAD >/dev/null
   [ -s "$tmp/$path" ] || { echo "Error: path not found in repo: $path"; exit 14; }
   mkdir -p "$(dirname "$dest")"
   cp -f "$tmp/$path" "$dest"
