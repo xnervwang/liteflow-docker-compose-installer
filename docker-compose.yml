@@ -35,7 +35,7 @@ services:
     environment:
       TZ: ${TZ}
       DOCKER_API: ${DOCKER_API}
-      TARGET: "${COMPOSE_PROJECT_NAME}_liteflow_1"
+      TARGET: "${COMPOSE_PROJECT_NAME}-liteflow-1"
       FILE: /app/etc/${CONF_FILE}
     volumes:
       # 必须映射整个目录，不能仅映射单个liteflow.conf文件，否则mv等动作无法被捕捉。
