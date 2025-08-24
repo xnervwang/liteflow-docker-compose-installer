@@ -18,11 +18,11 @@ services:
       liteflow-conf-puller:
         condition: service_healthy
     healthcheck:
-    test: ["CMD-SHELL", "[ -s /app/etc/liteflow.conf ] && pgrep -x liteflow >/dev/null"]
-      interval: 5s
-      timeout: 3s
-      retries: 12
-      start_period: 15s
+      test: ["CMD-SHELL", "[ -s /app/etc/liteflow.conf ] && pgrep -x liteflow >/dev/null"]
+        interval: 5s
+        timeout: 3s
+        retries: 12
+        start_period: 15s
     network_mode: host
     init: true
     environment:
@@ -53,7 +53,7 @@ services:
       TZ: ${TZ}
       DOCKER_API: ${DOCKER_API}
       TARGET: "${COMPOSE_PROJECT_NAME}-liteflow-1"
-      FILE: /app/etc/${CONF_FILE}
+      CONF_FILE: /app/etc/${CONF_FILE}
     volumes:
       # 必须映射整个目录，不能仅映射单个liteflow.conf文件，否则mv等动作无法被捕捉。
       - ${CONF_DIR}:/app/etc:ro
