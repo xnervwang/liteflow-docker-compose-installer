@@ -17,6 +17,12 @@ services:
     depends_on:
       liteflow-conf-puller:
         condition: service_healthy
+    healthcheck:
+    test: ["CMD-SHELL", "[ -s /app/etc/liteflow.conf ] && pgrep -x liteflow >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 15s
     network_mode: host
     init: true
     environment:
@@ -35,6 +41,13 @@ services:
       context: https://github.com/xnervwang/liteflow-conf-watcher-docker.git#main
     image: xnervwang/liteflow-conf-watcher:main
     pull_policy: never
+    depends_on:
+      liteflow-conf-puller:
+        condition: service_healthy
+      liteflow:
+        condition: service_healthy
+      dockerproxy:
+        condition: service_started
     # 不要使用host网络，否则无法连接dockerproxy，因为后者不使用host网络。
     environment:
       TZ: ${TZ}
