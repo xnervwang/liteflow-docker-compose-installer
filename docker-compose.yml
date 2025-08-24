@@ -39,7 +39,7 @@ services:
       # 必须映射整个目录，不能仅映射单个liteflow.conf文件，否则mv等动作无法被捕捉。
       - ${CONF_DIR}:/app/etc:ro
     restart: unless-stopped
-
+    
   liteflow-conf-puller:
     profiles: ["puller"]
     build:
@@ -48,10 +48,13 @@ services:
     pull_policy: never
     environment:
       TZ: ${TZ}
+      # —— 运行模式（git）：——
       CONF_REPO: ${CONF_REPO}
       CONF_SRC: output/${HOSTNAME}.conf
       DEST_FILE: /app/etc/liteflow.conf
-      INTERVAL: "${INTERVAL}"                                  # 秒
+      INTERVAL: "${INTERVAL}"
+      # BACKUP: "1"                                  # 可选：覆盖前备份
+      FORCE: "1"                                   # 可选：未开启 BACKUP 时允许覆盖
     volumes:
       - ${CONF_DIR}:/app/etc:rw
       - ${HOME}/.ssh:/root/.ssh:ro
