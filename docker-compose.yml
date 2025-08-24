@@ -19,10 +19,10 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "[ -s /app/etc/liteflow.conf ] && pgrep -x liteflow >/dev/null"]
-        interval: 5s
-        timeout: 3s
-        retries: 12
-        start_period: 15s
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 15s
     network_mode: host
     init: true
     environment:
