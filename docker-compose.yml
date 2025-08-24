@@ -14,6 +14,9 @@ services:
     # 也不会重新构建镜像。 如果需要强制重新build，请使用--build选项，例如：
     # docker compose -f docker-compose.yml up -d --build
     pull_policy: never          # 避免先尝试拉取远端镜像
+    depends_on:
+      liteflow-conf-puller:
+        condition: service_healthy
     network_mode: host
     init: true
     environment:
@@ -49,6 +52,12 @@ services:
       context: https://github.com/xnervwang/liteflow-conf-puller-docker.git#main
     image: xnervwang/liteflow-conf-puller:main
     pull_policy: never
+    healthcheck:
+      test: ["CMD-SHELL","[ -s /app/etc/liteflow.conf ] && [ -f /run/puller.ready ]"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
     environment:
       TZ: ${TZ}
       # —— 运行模式（git）：——
