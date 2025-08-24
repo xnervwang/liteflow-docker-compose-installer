@@ -1,0 +1,168 @@
+services:
+  liteflow:
+    profiles: ["liteflow"]
+    build:
+      context: https://github.com/xnervwang/liteflow.git#master
+    image: liteflow:master
+    # 只影响是否去Registry拉镜像，不影响本地构建。如果已有同名本地镜像，即使git repo有修改，
+    # 也不会重新构建镜像。 如果需要强制重新build，请使用--build选项，例如：
+    # docker compose -f docker-compose.yml up -d --build
+    pull_policy: never          # 避免先尝试拉取远端镜像
+    container_name: liteflow-${COMPOSE_PROJECT_NAME}
+    network_mode: host
+    init: true
+    environment:
+      TZ: ${TZ}
+      confpath: /app/etc/liteflow.conf
+    volumes:
+      - ${CONF_DIR}/${CONF_FILE}:/app/etc/liteflow.conf:ro
+    restart: unless-stopped
+
+  liteflow-conf-watcher:
+    profiles: ["watcher"]
+    build:
+      context: https://github.com/xnervwang/liteflow-conf-watcher-docker.git#main
+    image: xnervwang/liteflow-conf-watcher:main
+    pull_policy: never
+    container_name: liteflow-conf-watcher-${COMPOSE_PROJECT_NAME}
+    # 不要使用host网络，否则无法连接dockerproxy，因为后者不使用host网络。
+    environment:
+      TZ: ${TZ}
+      DOCKER_API: ${DOCKER_API}
+      TARGET: liteflow-${COMPOSE_PROJECT_NAME}
+      FILE: /app/etc/liteflow.conf
+    volumes:
+      # 必须映射整个目录，不能仅映射单个liteflow.conf文件，否则mv等动作无法被捕捉。
+      - ${CONF_DIR}:/app/etc:ro
+    restart: unless-stopped
+
+  liteflow-conf-puller:
+    profiles: ["puller"]
+    build:
+      context: https://github.com/xnervwang/liteflow-conf-puller-docker.git#main
+    image: xnervwang/liteflow-conf-puller:main
+    pull_policy: never
+    container_name: liteflow-conf-puller-${COMPOSE_PROJECT_NAME}
+    environment:
+      TZ: ${TZ}
+      CONF_REPO: ${CONF_REPO}
+      CONF_SRC: output/raspberrypi.${COMPOSE_PROJECT_NAME}.us.conf
+      DEST_FILE: /app/etc/liteflow.conf
+      INTERVAL: "${INTERVAL}"                                  # 秒
+    volumes:
+      - ${CONF_DIR}:/app/etc:rw
+      - ${HOME}/.ssh:/root/.ssh:ro
+    restart: unless-stopped
+
+  ss-local:
+    profiles: ["ss-local"]
+    image: shadowsocks/shadowsocks-libev:latest
+    container_name: ss-local-${COMPOSE_PROJECT_NAME}
+    network_mode: host
+    environment:
+      TZ: ${TZ}
+      SERVER_ADDR: ${SS_LOCAL_SERVER_ADDR}
+      SERVER_PORT: "${SS_LOCAL_SERVER_PORT}"
+      LOCAL_ADDR: ${SS_LOCAL_ADDR}
+      LOCAL_PORT: "${SS_LOCAL_PORT}"
+      PASSWORD: ${SS_PASSWORD}
+      METHOD: ${SS_METHOD}
+      TIMEOUT: "${SS_LOCAL_TIMEOUT}"
+    entrypoint: |
+      /bin/sh -eu -c '
+      : "$${SERVER_ADDR:?required}"
+      : "$${SERVER_PORT:?required}"
+      : "$${LOCAL_ADDR:?required}"
+      : "$${LOCAL_PORT:?required}"
+      : "$${PASSWORD:?required}"
+      : "$${METHOD:?required}"
+      : "$${TIMEOUT:?required}"
+      cat > /tmp/config.json <<EOF
+      {
+          "server":"$${SERVER_ADDR}",
+          "server_port":$${SERVER_PORT:-8388},
+          "local_address":"$${LOCAL_ADDR}",
+          "local_port":$${LOCAL_PORT:-8387},
+          "password":"$${PASSWORD}",
+          "timeout":$${TIMEOUT:-300},
+          "method":"$${METHOD}"
+      }
+      EOF
+      exec ss-local -c /tmp/config.json
+      '
+    restart: unless-stopped
+
+  ss-server:
+    profiles: ["ss-server"]
+    image: shadowsocks/shadowsocks-libev:latest
+    container_name: ss-server-${COMPOSE_PROJECT_NAME}
+    network_mode: host
+    environment:
+      TZ: ${TZ}
+      SERVER_ADDR: ${SS_SERVER_BIND_ADDR}
+      SERVER_PORT: "${SS_SERVER_PORT}"
+      PASSWORD: ${SS_PASSWORD}
+      METHOD: ${SS_METHOD}
+      TIMEOUT: "${SS_SERVER_TIMEOUT}"
+      ARGS: ${SS_SERVER_ARGS}
+    restart: unless-stopped
+
+  dockerproxy:
+    profiles: ["proxy"]
+    # 因为标签名不变，所以当docker hub上该标签发生变动时，本地并不会重新拉取，除非用
+    # docker compose up -d --pull always强制重新拉取。 
+    image: tecnativa/docker-socket-proxy:latest
+    container_name: dockerproxy-${COMPOSE_PROJECT_NAME}
+    # 不要使用host网络，避免将docker控制面暴露于host网络。
+    environment:
+      TZ: ${TZ}
+      LOG_LEVEL: ${DOCKERPROXY_LOG_LEVEL}
+      CONTAINERS: "1"
+      POST: "1"
+      CONTAINERS_KILL: "1"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+
+  ddns-go:
+    profiles: ["ddns"]
+    build:
+      context: https://github.com/xnervwang/ddns-go-docker.git#main
+    image: xnerv/ddns-go-docker:main
+    pull_policy: never
+    container_name: ddns-go-${COMPOSE_PROJECT_NAME}
+    # 必须 host 模式，private IPv4 才能取到宿主机内网 IP
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      TZ: ${DDNS_GO_TZ}
+      LANG: ${DDNS_GO_LANG}
+      NOT_ALLOW_WAN_ACCESS: "true"
+
+      # —— 公网（A/AAAA 只启用 IPv4；IPv6 先关）——
+      PUBLIC_PROFILE_NAME: ${DDNS_GO_PUBLIC_PROFILE_NAME}
+      PUBLIC_IPV4_ENABLE: "true"
+      PUBLIC_IPV4_GETTYPE: "url"
+      PUBLIC_IPV4_URLS: ${DDNS_GO_PUBLIC_IPV4_URLS}
+      PUBLIC_IPV4_DOMAIN: ${COMPOSE_PROJECT_NAME}.${DDNS_GO_BASE_DOMAIN}
+      PUBLIC_IPV6_ENABLE: "false"
+
+      PUBLIC_DNS_NAME: "alidns"
+      PUBLIC_DNS_ID: ${DDNS_GO_ALIDNS_ID}
+      PUBLIC_DNS_SECRET: ${DDNS_GO_ALIDNS_SECRET}
+
+      # —— 内网（只启用 IPv4，走网卡获取）——
+      PRIVATE_PROFILE_NAME: ${DDNS_GO_PRIVATE_PROFILE_NAME}
+      PRIVATE_IPV4_ENABLE: "true"
+      PRIVATE_IPV4_GETTYPE: "netInterface"
+      PRIVATE_IPV4_NETINTERFACE: ${DDNS_GO_PRIVATE_IPV4_NETINTERFACE}
+      PRIVATE_IPV4_DOMAIN: internal.${COMPOSE_PROJECT_NAME}.${DDNS_GO_BASE_DOMAIN}
+      PRIVATE_IPV6_ENABLE: "false"
+
+      PRIVATE_DNS_NAME: "alidns"
+      PRIVATE_DNS_ID: ${DDNS_GO_ALIDNS_ID}
+      PRIVATE_DNS_SECRET: ${DDNS_GO_ALIDNS_SECRET}
+
+      # —— Web 登录（必需：用户名与 bcrypt 哈希）——
+      WEB_USERNAME: ${DDNS_GO_WEB_USERNAME}
+      WEB_PASSWORD_HASH: ${DDNS_GO_WEB_PASSWORD_HASH}
