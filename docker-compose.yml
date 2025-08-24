@@ -66,7 +66,7 @@ services:
     image: xnervwang/liteflow-conf-puller:main
     pull_policy: never
     healthcheck:
-      test: ["CMD-SHELL","[ -s /app/etc/${CONF_FILE} ] && [ -f ${READY_FLAG} ]"]
+      test: ["CMD-SHELL","[ -s /app/etc/${CONF_FILE} ] && [ -f ${PULLER_READY_FLAG} ]"]
       interval: 5s
       timeout: 3s
       retries: 12
