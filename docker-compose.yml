@@ -8,7 +8,7 @@ services:
         # which just moves a repo snapshot which doesn't have .git subfolder, and further `git submodule`
         # command would fail.
         SOURCE: https://github.com/xnervwang/Liteflow.git
-        BRANCH: venus
+        BRANCH: master
     image: liteflow:venus
     # 只影响是否去Registry拉镜像，不影响本地构建。如果已有同名本地镜像，即使git repo有修改，
     # 也不会重新构建镜像。 如果需要强制重新build，请使用--build选项，例如：
