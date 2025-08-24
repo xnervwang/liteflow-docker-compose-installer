@@ -18,7 +18,7 @@ services:
       liteflow-conf-puller:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "[ -s /app/etc/liteflow.conf ] && pgrep -x liteflow >/dev/null"]
+      test: ["CMD-SHELL", "[ -s /app/etc/${CONF_FILE} ] && pidof liteflow >/dev/null || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 5
