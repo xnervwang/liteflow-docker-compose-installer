@@ -4,8 +4,8 @@ services:
     build:
       context: https://github.com/xnervwang/liteflow.git#master
       args:
-        SOURCE: local         # 强制使用构建上下文里的源码
-        BRANCH: venus         # 可写可不写；SOURCE=local 时不生效
+        SOURCE: https://github.com/xnervwang/Liteflow.git
+        BRANCH: venus
     image: liteflow:venus
     # 只影响是否去Registry拉镜像，不影响本地构建。如果已有同名本地镜像，即使git repo有修改，
     # 也不会重新构建镜像。 如果需要强制重新build，请使用--build选项，例如：
