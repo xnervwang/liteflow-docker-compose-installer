@@ -78,7 +78,7 @@ services:
       CONF_SRC: output/${HOSTNAME}.conf
       DEST_FILE: /app/etc/${CONF_FILE}
       INTERVAL: "${INTERVAL}"
-      READY_FLAG: ${READY_FLAG}
+      READY_FLAG: ${PULLER_READY_FLAG}
       # BACKUP: "1"                                  # 可选：覆盖前备份
       FORCE: "1"                                   # 可选：未开启 BACKUP 时允许覆盖
     volumes:
