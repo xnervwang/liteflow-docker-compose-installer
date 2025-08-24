@@ -20,7 +20,8 @@ services:
       TZ: ${TZ}
       confpath: /app/etc/liteflow.conf
     volumes:
-      - ${CONF_DIR}/${CONF_FILE}:/app/etc/liteflow.conf:ro
+      # Don't mount the file directly, otherwise before puller gets the file, docker would create
+      # a folder with the conf file path wrongly.
     restart: unless-stopped
 
   liteflow-conf-watcher:
