@@ -1,255 +1,297 @@
 #!/usr/bin/env sh
-# install.sh — 拉取 liteflow.conf、compose YAML、watch.sh，并启动 compose
-# Usage:
-#   ./install.sh [-y] [<host-name>]
-# Examples:
-#   ./install.sh -y
-#   ./install.sh node-01.example.internal
+# install.sh — 获取 docker-compose.yml 与 env.template，生成 .env，并以指定 project 启动
+# 支持来源：
+#   1) 直链 HTTP(S) 文件（public 或带认证头）
+#   2) Git 仓库单文件（SSH/HTTPS）：格式 repo.git#branch:path/to/file （用 sparse-checkout）
 #
-# 非交互模式（跳过询问）：
-#   ./install.sh -y
-#   ASSUME_YES=1 ./install.sh
+# 必填输入（命令行或环境变量）：
+#   COMPOSE_PROJECT_NAME   HOSTNAME   PUBLIC_IPV4_DOMAIN   PRIVATE_IPV4_DOMAIN
 #
-# 可用环境变量覆盖：
-#   CONF_REPO  COMPOSE_REPO  FETCH_URL  WATCH_URL
-#   DEST_CONF  MODE  COMPOSE_SRC_PATH  COMPOSE_DEST_FILE
+# 必填来源（命令行或环境变量）：
+#   COMPOSE_SRC   ENV_TMPL_SRC
+#     - 直链示例：https://example.com/path/docker-compose.yml
+#     - Git 单文件示例（SSH）：git@github.com:owner/repo.git#main:deploy/docker-compose.yml
+#     - Git 单文件示例（HTTPS）：https://github.com/owner/repo.git#main:deploy/env.template
+#
+# 可选认证输入：
+#   TOKEN         —— 用于 HTTPS（Git 或 API/直链）：作为 Bearer 放入 Authorization 头
+#   AUTH_HEADER   —— 自定义完整 Authorization 头；存在时优先于 TOKEN
+#   SSH_KEY       —— 指定 SSH 私钥路径，用于 SSH URL（默认用当前用户 key/agent）
+#
+# 运行示例（推荐把 project 也传给 -p）：
+#   COMPOSE_PROJECT_NAME=node35 \
+#   HOSTNAME=node35.raspberrypi.xnerv.wang \
+#   PUBLIC_IPV4_DOMAIN=node35.raspberrypi.xnerv.wang \
+#   PRIVATE_IPV4_DOMAIN=internal.node35.raspberrypi.xnerv.wang \
+#   COMPOSE_SRC="git@github.com:owner/repo.git#main:deploy/docker-compose.yml" \
+#   ENV_TMPL_SRC="https://api.github.com/repos/owner/private-repo/contents/env.template?ref=main" \
+#   TOKEN=github_pat_xxx \
+#   ./install.sh -y
+#
+# 最终会在当前目录生成/覆盖：
+#   ./docker-compose.yml
+#   ./.env
 
 set -eu
 
-# -------- 默认配置（可用 env 覆盖） --------
-: "${CONF_REPO:=git@github.com:xnervwang/liteflow-conf-repo.git}"
-: "${COMPOSE_REPO:=git@github.com:xnervwang/liteflow-docker-compose-repo.git}"
-: "${FETCH_URL:=https://raw.githubusercontent.com/xnervwang/Liteflow/refs/heads/venus/scripts/fetch-conf.sh}"
-: "${WATCH_URL:=https://raw.githubusercontent.com/xnervwang/liteflow-docker-compose-installer/refs/heads/main/watch.sh}"
+YES=0
+[ "${ASSUME_YES:-}" = "1" ] && YES=1
 
-: "${DEST_CONF:=liteflow.conf}"         # 本地保存的 liteflow 配置
-: "${MODE:=--force}"                    # --force | --backup
-: "${COMPOSE_DEST_FILE:=compose.yaml}"  # 本地保存的 compose 文件名
-# ----------------------------------------
-
+# ------------ 参数解析 ------------
 usage() {
-  echo "Usage: $0 [-y] [<host-name>]"
-  echo "Examples:"
-  echo "  $0 -y"
-  echo "  $0 node-01.example.internal"
+  cat <<'EOF'
+Usage:
+  [env vars] ./install.sh [-y]
+Required env vars (or pass as inline VAR=... before the command):
+  COMPOSE_PROJECT_NAME   Project name for docker compose (-p will also use this)
+  HOSTNAME               e.g. node35.raspberrypi.xnerv.wang
+  PUBLIC_IPV4_DOMAIN     e.g. node35.raspberrypi.xnerv.wang
+  PRIVATE_IPV4_DOMAIN    e.g. internal.node35.raspberrypi.xnerv.wang
+  COMPOSE_SRC            Source of docker-compose.yml (URL or git single-file)
+  ENV_TMPL_SRC           Source of env.template (URL or git single-file)
+Optional:
+  TOKEN                  Bearer token for private HTTPS
+  AUTH_HEADER            Full Authorization header (overrides TOKEN)
+  SSH_KEY                SSH private key for SSH git URLs
+  COMPOSE_DEST           Local filename for compose (default: docker-compose.yml)
+  ENV_TEMPLATE_DEST      Local filename for template (default: env.template)
+  ENV_FILE               Local .env path (default: .env)
+  DONT_UP=1              Only fetch & generate .env, do not run 'compose up'
+Flags:
+  -y                     non-interactive (assume yes on overwrite, etc.)
+EOF
   exit 1
 }
 
-# 解析 -y
-YES=0
-[ "${ASSUME_YES:-}" = "1" ] && YES=1
-if [ "${1:-}" = "-y" ]; then YES=1; shift; fi
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -y) YES=1; shift ;;
+    *) usage ;;
+  esac
+done
 
-# host 参数可选：缺省则取当前机器 hostname
-HOST="${1:-}"
-if [ -n "$HOST" ]; then shift; fi
-[ -z "${HOST:-}" ] && HOST="$(hostname -f 2>/dev/null || hostname 2>/dev/null || uname -n)"
+# ------------ 必填变量校验 ------------
+req() { eval "[ -n \"\${$1:-}\" ]" || { echo "Error: missing $1"; exit 2; }; }
 
-# 额外参数不应存在
-[ $# -gt 0 ] && usage
+req COMPOSE_PROJECT_NAME
+req HOSTNAME
+req PUBLIC_IPV4_DOMAIN
+req PRIVATE_IPV4_DOMAIN
+req COMPOSE_SRC
+req ENV_TMPL_SRC
 
-# 依据 host 推导远端 compose/conf 路径（可用 COMPOSE_SRC_PATH 覆盖）
-: "${COMPOSE_SRC_PATH:=${HOST}.yaml}"
-CONF_SRC_PATH="output/${HOST}.conf"
+COMPOSE_DEST="${COMPOSE_DEST:-docker-compose.yml}"
+ENV_TEMPLATE_DEST="${ENV_TEMPLATE_DEST:-env.template}"
+ENV_FILE="${ENV_FILE:-.env}"
 
-# ---------- 依赖检测（只检测不安装） ----------
-need() { command -v "$1" >/dev/null 2>&1 || { echo "Error: '$1' not found."; exit 127; }; }
-
-# 下载器：curl 或 wget 二选一
-DOWNLOADER=""
-command -v curl >/dev/null 2>&1 && DOWNLOADER="curl"
-[ -z "$DOWNLOADER" ] && command -v wget >/dev/null 2>&1 && DOWNLOADER="wget"
-[ -n "$DOWNLOADER" ] || { echo "Error: need 'curl' or 'wget'."; exit 127; }
-
-need git
-need bash
-# docker / compose
-if ! command -v docker >/dev/null 2>&1; then echo "Error: 'docker' not found."; exit 127; fi
-DCOMPOSE=""
+# ------------ 依赖检测 ------------
+need() { command -v "$1" >/dev/null 2>&1 || { echo "Error: '$1' not found"; exit 127; }; }
+need awk
+need sed
+need mktemp
+if ! command -v docker >/dev/null 2>&1; then echo "Error: 'docker' not found"; exit 127; fi
 if docker compose version >/dev/null 2>&1; then DCOMPOSE="docker compose"
 elif command -v docker-compose >/dev/null 2>&1; then DCOMPOSE="docker-compose"
 else
-  echo "Error: neither 'docker compose' nor 'docker-compose' found."; exit 127
+  echo "Error: neither 'docker compose' nor 'docker-compose' found"; exit 127
 fi
+# git 仅在需要 sparse-checkout 时才必须
+need_git_once=1
 
-# SSH 仅在 repo 为 SSH URL 时要求
-case "$CONF_REPO $COMPOSE_REPO" in
-  *git@*|*ssh://*) need ssh ;;
-esac
-
-# 可选工具告警 + 询问
-missing=""
-command -v jq  >/dev/null 2>&1 || missing="$missing jq"
-command -v cmp >/dev/null 2>&1 || missing="$missing cmp"
-if [ -n "$missing" ]; then
-  echo "Warning: optional tools missing:${missing}"
-  echo "  - jq  : 用于 JSON 校验（缺失则跳过校验）
-  - cmp : 用于无差异检测（缺失则总是覆盖或备份）"
-  if [ "$YES" -ne 1 ]; then
-    printf "Continue without these? [y/N]: "
-    read ans || ans=""
-    case "$ans" in y|Y|yes|YES) : ;; *) echo "Aborted."; exit 2 ;; esac
-  fi
-fi
-
-# ---------- 通用下载函数 ----------
-dl() {
-  # dl <url> <dest>
-  if [ "$DOWNLOADER" = "curl" ]; then
-    curl -fsSL --retry 3 --retry-delay 1 "$1" -o "$2"
-  else
-    # BusyBox wget 兼容：无 --retry 用默认重试策略
-    wget -qO "$2" "$1"
-  fi
-  [ -s "$2" ] || { echo "Error: download failed or empty: $1"; return 1; }
+# ------------ 小工具 ------------
+redact_url() {
+  # 把 URL 内可能出现的 user:pass@ 段打码
+  # 例：https://user:token@host/path -> https://***:***@host/path
+  printf '%s' "$1" | awk '
+    BEGIN{FS="://"; OFS="://"}
+    NF<2{print $0; next}
+    {
+      proto=$1; rest=$2
+      split(rest, a, "@")
+      if (length(a)>1 && index(a[1], ":")>0) {
+        split(a[1], up, ":"); up[1]="***"; up[2]="***"
+        a[1]=up[1] ":" up[2]
+        for(i=2;i<=length(a);i++){ a[1]=a[1] "@" a[i] }
+        print proto, a[1]
+      } else {
+        print $0
+      }
+    }'
 }
 
-# ---------- 下载 fetch-conf.sh ----------
-TMPDIR="$(mktemp -d)"; trap 'rm -rf "$TMPDIR"' EXIT
-FETCH_SH="$TMPDIR/fetch-conf.sh"
-echo "[install] downloading fetch-conf.sh: $FETCH_URL"
-dl "$FETCH_URL" "$FETCH_SH" || { echo "Error: cannot fetch fetch-conf.sh"; exit 10; }
-chmod +x "$FETCH_SH"
-
-# ---------- 拉 liteflow.conf ----------
-echo "[install] fetching conf from $CONF_REPO : $CONF_SRC_PATH -> ./$DEST_CONF ($MODE)"
-if ! bash "$FETCH_SH" git "$MODE" "$CONF_REPO" "$CONF_SRC_PATH" "./$DEST_CONF"; then
-  echo "Error: failed to fetch conf. Check:"
-  echo "  - repo access (SSH key/permissions)"
-  echo "  - path exists in repo: $CONF_SRC_PATH"
-  exit 11
-fi
-[ -s "./$DEST_CONF" ] || { echo "Error: dest conf is missing or empty: $DEST_CONF"; exit 12; }
-
-# ---------- 拉 compose YAML ----------
-echo "[install] fetching compose from $COMPOSE_REPO : $COMPOSE_SRC_PATH -> ./$COMPOSE_DEST_FILE ($MODE)"
-if ! bash "$FETCH_SH" git "$MODE" "$COMPOSE_REPO" "$COMPOSE_SRC_PATH" "./$COMPOSE_DEST_FILE"; then
-  echo "Error: failed to fetch compose file. Check:"
-  echo "  - repo access (SSH key/permissions)"
-  echo "  - path exists in repo: $COMPOSE_SRC_PATH"
-  exit 13
-fi
-[ -s "./$COMPOSE_DEST_FILE" ] || { echo "Error: compose file missing or empty: $COMPOSE_DEST_FILE"; exit 14; }
-
-# ---------- 拉 watch.sh（公开 raw） ----------
-echo "[install] downloading watch.sh: $WATCH_URL -> ./watch.sh"
-dl "$WATCH_URL" ./watch.sh || { echo "Error: cannot fetch watch.sh"; exit 15; }
-chmod +x ./watch.sh
-
-###############################################################################
-# 新增：从 Git 拉取/更新源码并构建两张镜像
-# - xnervwang/ddns-go-docker:main  （源：ddns-go-docker.git @ main）
-# - xnervwang/liteflow:venus       （源：Liteflow.git @ venus）
-###############################################################################
-# 可被环境变量覆盖的默认设置
-: "${DDNS_BUILD_REPO:=https://github.com/xnervwang/ddns-go-docker.git}"
-: "${DDNS_BUILD_BRANCH:=main}"
-: "${DDNS_BUILD_WORKDIR:=/tmp/ddns-go-docker}"
-: "${DDNS_BUILD_CONTEXT_SUBDIR:=.}"
-: "${DDNS_BUILD_DOCKERFILE:=}"             # 为空则用默认 Dockerfile
-: "${DDNS_BUILD_TAG:=xnervwang/ddns-go-docker:main}"
-
-: "${LITEFLOW_BUILD_REPO:=https://github.com/xnervwang/Liteflow.git}"
-: "${LITEFLOW_BUILD_BRANCH:=venus}"
-: "${LITEFLOW_BUILD_WORKDIR:=/tmp/Liteflow}"
-: "${LITEFLOW_BUILD_CONTEXT_SUBDIR:=.}"
-: "${LITEFLOW_BUILD_DOCKERFILE:=}"         # 为空则用默认 Dockerfile
-: "${LITEFLOW_BUILD_TAG:=xnervwang/liteflow:venus}"
-
-git_sync_reset() {
-  # git_sync_reset <repo> <branch> <workdir>
-  repo="$1"; branch="$2"; workdir="$3"
-  if [ -d "$workdir/.git" ]; then
-    echo "[install] updating $workdir -> origin/$branch"
-    git -C "$workdir" fetch --all --prune
-    git -C "$workdir" checkout "$branch"
-    git -C "$workdir" reset --hard "origin/$branch"
-  else
-    echo "[install] cloning $repo#$branch -> $workdir"
-    rm -rf "$workdir"
-    git clone --depth 1 --branch "$branch" "$repo" "$workdir"
+curl_fetch() {
+  # curl_fetch <SRC_URL> <DEST>
+  need curl
+  src="$1"; dest="$2"
+  hdr=""
+  if [ -n "${AUTH_HEADER:-}" ]; then
+    hdr="$AUTH_HEADER"
+  elif [ -n "${TOKEN:-${GITHUB_TOKEN:-}}" ]; then
+    hdr="Authorization: Bearer ${TOKEN:-${GITHUB_TOKEN}}"
   fi
+  echo "[fetch] http(s): $(redact_url "$src") -> $dest"
+  if [ -n "$hdr" ]; then
+    curl -fsSL -H "$hdr" -H "Accept: application/vnd.github.v3.raw" -o "$dest" "$src"
+  else
+    curl -fsSL -o "$dest" "$src"
+  fi
+  [ -s "$dest" ] || { echo "Error: empty download: $dest"; exit 10; }
 }
 
-docker_build_here() {
-  # docker_build_here <workdir> <context_subdir> <dockerfile> <tag>
-  workdir="$1"; subdir="$2"; dfile="$3"; tag="$4"
-  ctx="$workdir"
-  [ "$subdir" != "." ] && ctx="$workdir/$subdir"
-  echo "[install] building image $tag from $ctx ${dfile:+(Dockerfile=$dfile)}"
-  if [ -n "$dfile" ]; then
-    docker build --network host -t "$tag" -f "$ctx/$dfile" "$ctx"
+git_sparse_fetch() {
+  # git_sparse_fetch <GIT_URL#BRANCH:PATH> <DEST>
+  need git
+  need_git_once=0
+  spec="$1"; dest="$2"
+  case "$spec" in
+    *\#*:* ) : ;;
+    *) echo "Error: git single-file spec must be 'repo.git#branch:path'"; exit 11 ;;
+  esac
+  repo="${spec%%#*}"
+  rest="${spec#*#}"
+  branch="${rest%%:*}"
+  path="${rest#*:}"
+  [ -n "$repo" ] && [ -n "$branch" ] && [ -n "$path" ] || { echo "Error: bad spec: $spec"; exit 12; }
+
+  echo "[fetch] git sparse: ${repo} (branch=$branch, path=$path) -> $dest"
+
+  tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+  GIT_TERMINAL_PROMPT=0 git -C "$tmp" init >/dev/null
+
+  # SSH 私钥
+  ssh_cmd=""
+  case "$repo" in
+    git@*|ssh://* )
+      if [ -n "${SSH_KEY:-}" ]; then
+        ssh_cmd="ssh -i \"$SSH_KEY\" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+      else
+        ssh_cmd="ssh -o StrictHostKeyChecking=accept-new"
+      fi
+      ;;
+  esac
+
+  # 添加远程
+  if [ -n "$ssh_cmd" ]; then
+    GIT_SSH_COMMAND="$ssh_cmd" git -C "$tmp" remote add origin "$repo"
   else
-    docker build --network host -t "$tag" "$ctx"
+    git -C "$tmp" remote add origin "$repo"
   fi
-}
 
-# 1) ddns-go-docker -> xnervwang/ddns-go-docker:main
-git_sync_reset "$DDNS_BUILD_REPO" "$DDNS_BUILD_BRANCH" "$DDNS_BUILD_WORKDIR"
-docker_build_here "$DDNS_BUILD_WORKDIR" "$DDNS_BUILD_CONTEXT_SUBDIR" "$DDNS_BUILD_DOCKERFILE" "$DDNS_BUILD_TAG"
+  git -C "$tmp" config core.sparseCheckout true
+  mkdir -p "$tmp/.git/info"
+  printf '%s\n' "$path" > "$tmp/.git/info/sparse-checkout"
 
-# 2) Liteflow -> xnervwang/liteflow:venus
-git_sync_reset "$LITEFLOW_BUILD_REPO" "$LITEFLOW_BUILD_BRANCH" "$LITEFLOW_BUILD_WORKDIR"
-docker_build_here "$LITEFLOW_BUILD_WORKDIR" "$LITEFLOW_BUILD_CONTEXT_SUBDIR" "$LITEFLOW_BUILD_DOCKERFILE" "$LITEFLOW_BUILD_TAG"
-
-# ---------- 解析 compose 中的 container_name 并处理冲突 ----------
-conflict_names="$(awk '
-  $1 ~ /container_name:/ {
-    sub(/^[[:space:]]*container_name:[[:space:]]*/, "", $0)
-    gsub(/["'\''"]/, "", $0)
-    sub(/[[:space:]]+$/, "", $0)
-    if (length($0)>0) print $0
-  }
-' "$COMPOSE_DEST_FILE" | sort -u)"
-
-to_remove=""
-if [ -n "$conflict_names" ]; then
-  for name in $conflict_names; do
-    if docker ps -a --format '{{.Names}}' | grep -Fx "$name" >/dev/null 2>&1; then
-      echo "Found existing container with same container_name: $name"
-      to_remove="$to_remove $name"
+  # HTTPS 私库：用 token 走额外 header
+  if [ -z "$ssh_cmd" ] && [ "${repo#https://}" != "$repo" ]; then
+    if [ -n "${AUTH_HEADER:-}" ]; then
+      git -C "$tmp" -c http.extraHeader="$AUTH_HEADER" fetch --depth 1 origin "$branch" >/dev/null
+    elif [ -n "${TOKEN:-${GITHUB_TOKEN:-}}" ]; then
+      git -C "$tmp" -c http.extraHeader="Authorization: Bearer ${TOKEN:-${GITHUB_TOKEN}}" fetch --depth 1 origin "$branch" >/dev/null
+    else
+      # 无 token，尝试公共访问
+      git -C "$tmp" fetch --depth 1 origin "$branch" >/dev/null 2>&1 || {
+        echo "Error: https git needs TOKEN or AUTH_HEADER for private repo"
+        exit 13
+      }
     fi
-  done
-fi
-
-if [ -n "$to_remove" ]; then
-  if [ "$YES" -ne 1 ]; then
-    echo "The following containers will be removed to avoid name conflicts:"
-    for n in $to_remove; do echo "  - $n"; done
-    printf "Proceed to remove them? [y/N]: "
-    read ans || ans=""
-    case "$ans" in y|Y|yes|YES) : ;; *) echo "Aborted."; exit 16 ;; esac
+  else
+    # SSH 或本地/其他协议
+    if [ -n "$ssh_cmd" ]; then
+      GIT_SSH_COMMAND="$ssh_cmd" git -C "$tmp" fetch --depth 1 origin "$branch" >/dev/null
+    else
+      git -C "$tmp" fetch --depth 1 origin "$branch" >/dev/null
+    fi
   fi
-  for n in $to_remove; do docker rm -f "$n" >/dev/null 2>&1 || true; done
+
+  git -C "$tmp" checkout FETCH_HEAD >/dev/null
+  [ -s "$tmp/$path" ] || { echo "Error: path not found in repo: $path"; exit 14; }
+  mkdir -p "$(dirname "$dest")"
+  cp -f "$tmp/$path" "$dest"
+}
+
+fetch_any() {
+  # fetch_any <SRC> <DEST>
+  src="$1"; dest="$2"
+
+  case "$src" in
+    http://*|https://*)
+      curl_fetch "$src" "$dest"
+      ;;
+    git@*|ssh://*|*.git\#*:*|https://*.git\#*:*|http://*.git\#*:*|https://github.com/*/*.git\#*:* )
+      git_sparse_fetch "$src" "$dest"
+      ;;
+    *)
+      echo "Error: unsupported source: $src"
+      exit 15
+      ;;
+  esac
+}
+
+set_kv() {
+  # set_kv KEY VALUE FILE   —— 就地覆盖/追加，不做展开
+  key="$1"; val="$2"; file="$3"
+  awk -v k="$key" -v v="$val" -F= '
+    BEGIN{done=0}
+    $1==k {print k"="v; done=1; next}
+    {print}
+    END{if(!done) print k"="v}
+  ' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+}
+
+# ------------ 覆盖提示 ------------
+maybe_overwrite() {
+  f="$1"
+  [ -e "$f" ] || return 0
+  [ "$YES" -eq 1 ] && return 0
+  printf "[install] %s exists; overwrite? [y/N]: " "$f"
+  read ans || ans=""
+  case "$ans" in y|Y|yes|YES) : ;; *) echo "Aborted."; exit 3 ;; esac
+}
+
+# ------------ 下载两个文件 ------------
+maybe_overwrite "$COMPOSE_DEST"
+fetch_any "$COMPOSE_SRC" "$COMPOSE_DEST"
+
+maybe_overwrite "$ENV_TEMPLATE_DEST"
+fetch_any "$ENV_TMPL_SRC" "$ENV_TEMPLATE_DEST"
+
+[ -s "$COMPOSE_DEST" ] || { echo "Error: empty compose file: $COMPOSE_DEST"; exit 20; }
+[ -s "$ENV_TEMPLATE_DEST" ] || { echo "Error: empty env template: $ENV_TEMPLATE_DEST"; exit 21; }
+
+# ------------ 生成 .env ------------
+maybe_overwrite "$ENV_FILE"
+cp -f "$ENV_TEMPLATE_DEST" "$ENV_FILE"
+
+# 写入四个关键变量（其余保留模板原值）
+set_kv COMPOSE_PROJECT_NAME "$COMPOSE_PROJECT_NAME" "$ENV_FILE"
+set_kv HOSTNAME "$HOSTNAME" "$ENV_FILE"
+set_kv PUBLIC_IPV4_DOMAIN "$PUBLIC_IPV4_DOMAIN" "$ENV_FILE"
+set_kv PRIVATE_IPV4_DOMAIN "$PRIVATE_IPV4_DOMAIN" "$ENV_FILE"
+
+echo "[install] .env written -> $ENV_FILE"
+
+# ------------ 校验 compose ------------
+echo "[install] validating compose config ..."
+COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT_NAME" \
+HOSTNAME="$HOSTNAME" \
+PUBLIC_IPV4_DOMAIN="$PUBLIC_IPV4_DOMAIN" \
+PRIVATE_IPV4_DOMAIN="$PRIVATE_IPV4_DOMAIN" \
+$DCOMPOSE --env-file "$ENV_FILE" -f "$COMPOSE_DEST" -p "$COMPOSE_PROJECT_NAME" config -q
+
+# ------------ 启动（可选跳过） ------------
+if [ "${DONT_UP:-0}" -ne 1 ]; then
+  echo "[install] bringing up services ..."
+  COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT_NAME" \
+  HOSTNAME="$HOSTNAME" \
+  PUBLIC_IPV4_DOMAIN="$PUBLIC_IPV4_DOMAIN" \
+  PRIVATE_IPV4_DOMAIN="$PRIVATE_IPV4_DOMAIN" \
+  $DCOMPOSE --env-file "$ENV_FILE" -f "$COMPOSE_DEST" -p "$COMPOSE_PROJECT_NAME" up -d --force-recreate --remove-orphans
+  echo "[install] done."
+else
+  echo "[install] fetch-only mode complete (DONT_UP=1)."
 fi
 
-# ---------- 校验 compose 语法 ----------
-echo "[install] validating compose syntax ..."
-if ! $DCOMPOSE -f "./$COMPOSE_DEST_FILE" config -q >/dev/null 2>&1; then
-  echo "Error: 'docker compose config -q' failed. Compose file may be invalid."
-  exit 17
+# ------------ 额外提示 ------------
+if [ "$need_git_once" -eq 0 ]; then
+  : # 使用了 git；无动作，仅占位
 fi
-
-# ---------- 写入 .env（供 compose 使用） ----------
-ENV_FILE="./.env"
-echo "[install] writing $ENV_FILE for liteflow-conf-puller"
-cat > "$ENV_FILE" <<EOF
-# Generated by install.sh at $(date -Iseconds)
-FETCH_URL=$FETCH_URL
-CONF_REPO=$CONF_REPO
-CONF_SRC=output/${HOST}.conf
-DEST_FILE=/app/etc/${DEST_CONF}
-INTERVAL=60
-EOF
-
-# ---------- 启动 compose ----------
-echo "[install] bringing up services with $COMPOSE_DEST_FILE ..."
-if ! $DCOMPOSE --env-file "$ENV_FILE" -f "./$COMPOSE_DEST_FILE" up -d --force-recreate --remove-orphans; then
-  echo "Error: compose up failed."
-  exit 18
-fi
-
-echo "[install] done."
-echo "Files:"
-echo "  $(pwd)/$DEST_CONF"
-echo "  $(pwd)/$COMPOSE_DEST_FILE"
