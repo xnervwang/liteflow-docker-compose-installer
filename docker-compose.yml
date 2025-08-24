@@ -161,3 +161,4 @@ services:
       # —— Web 登录（必需：用户名与 bcrypt 哈希）——
       WEB_USERNAME: ${DDNS_GO_WEB_USERNAME}
       WEB_PASSWORD_HASH: ${DDNS_GO_WEB_PASSWORD_HASH}
+
