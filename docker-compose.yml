@@ -46,7 +46,7 @@ services:
     environment:
       TZ: ${TZ}
       CONF_REPO: ${CONF_REPO}
-      CONF_SRC: output/raspberrypi.${COMPOSE_PROJECT_NAME}.us.conf
+      CONF_SRC: output/${HOSTNAME}.conf
       DEST_FILE: /app/etc/liteflow.conf
       INTERVAL: "${INTERVAL}"                                  # 秒
     volumes:
@@ -144,10 +144,10 @@ services:
       PUBLIC_IPV4_ENABLE: "true"
       PUBLIC_IPV4_GETTYPE: "url"
       PUBLIC_IPV4_URLS: ${DDNS_GO_PUBLIC_IPV4_URLS}
-      PUBLIC_IPV4_DOMAIN: ${COMPOSE_PROJECT_NAME}.${DDNS_GO_BASE_DOMAIN}
+      PUBLIC_IPV4_DOMAIN: ${PUBLIC_IPV4_DOMAIN}
       PUBLIC_IPV6_ENABLE: "false"
 
-      PUBLIC_DNS_NAME: "alidns"
+      PUBLIC_DNS_NAME: ${DDNS_GO_DNS_NAME}
       PUBLIC_DNS_ID: ${DDNS_GO_ALIDNS_ID}
       PUBLIC_DNS_SECRET: ${DDNS_GO_ALIDNS_SECRET}
 
@@ -156,10 +156,10 @@ services:
       PRIVATE_IPV4_ENABLE: "true"
       PRIVATE_IPV4_GETTYPE: "netInterface"
       PRIVATE_IPV4_NETINTERFACE: ${DDNS_GO_PRIVATE_IPV4_NETINTERFACE}
-      PRIVATE_IPV4_DOMAIN: internal.${COMPOSE_PROJECT_NAME}.${DDNS_GO_BASE_DOMAIN}
+      PRIVATE_IPV4_DOMAIN: ${PRIVATE_IPV4_DOMAIN}
       PRIVATE_IPV6_ENABLE: "false"
 
-      PRIVATE_DNS_NAME: "alidns"
+      PRIVATE_DNS_NAME: ${DDNS_GO_DNS_NAME}
       PRIVATE_DNS_ID: ${DDNS_GO_ALIDNS_ID}
       PRIVATE_DNS_SECRET: ${DDNS_GO_ALIDNS_SECRET}
 
