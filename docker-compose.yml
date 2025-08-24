@@ -8,7 +8,6 @@ services:
     # 也不会重新构建镜像。 如果需要强制重新build，请使用--build选项，例如：
     # docker compose -f docker-compose.yml up -d --build
     pull_policy: never          # 避免先尝试拉取远端镜像
-    container_name: liteflow-${COMPOSE_PROJECT_NAME}
     network_mode: host
     init: true
     environment:
@@ -24,12 +23,11 @@ services:
       context: https://github.com/xnervwang/liteflow-conf-watcher-docker.git#main
     image: xnervwang/liteflow-conf-watcher:main
     pull_policy: never
-    container_name: liteflow-conf-watcher-${COMPOSE_PROJECT_NAME}
     # 不要使用host网络，否则无法连接dockerproxy，因为后者不使用host网络。
     environment:
       TZ: ${TZ}
       DOCKER_API: ${DOCKER_API}
-      TARGET: liteflow-${COMPOSE_PROJECT_NAME}
+      TARGET: "${COMPOSE_PROJECT_NAME}_liteflow_1"
       FILE: /app/etc/liteflow.conf
     volumes:
       # 必须映射整个目录，不能仅映射单个liteflow.conf文件，否则mv等动作无法被捕捉。
@@ -42,7 +40,6 @@ services:
       context: https://github.com/xnervwang/liteflow-conf-puller-docker.git#main
     image: xnervwang/liteflow-conf-puller:main
     pull_policy: never
-    container_name: liteflow-conf-puller-${COMPOSE_PROJECT_NAME}
     environment:
       TZ: ${TZ}
       CONF_REPO: ${CONF_REPO}
@@ -57,7 +54,6 @@ services:
   ss-local:
     profiles: ["ss-local"]
     image: shadowsocks/shadowsocks-libev:latest
-    container_name: ss-local-${COMPOSE_PROJECT_NAME}
     network_mode: host
     environment:
       TZ: ${TZ}
@@ -95,7 +91,6 @@ services:
   ss-server:
     profiles: ["ss-server"]
     image: shadowsocks/shadowsocks-libev:latest
-    container_name: ss-server-${COMPOSE_PROJECT_NAME}
     network_mode: host
     environment:
       TZ: ${TZ}
@@ -112,7 +107,6 @@ services:
     # 因为标签名不变，所以当docker hub上该标签发生变动时，本地并不会重新拉取，除非用
     # docker compose up -d --pull always强制重新拉取。 
     image: tecnativa/docker-socket-proxy:latest
-    container_name: dockerproxy-${COMPOSE_PROJECT_NAME}
     # 不要使用host网络，避免将docker控制面暴露于host网络。
     environment:
       TZ: ${TZ}
@@ -130,7 +124,6 @@ services:
       context: https://github.com/xnervwang/ddns-go-docker.git#main
     image: xnerv/ddns-go-docker:main
     pull_policy: never
-    container_name: ddns-go-${COMPOSE_PROJECT_NAME}
     # 必须 host 模式，private IPv4 才能取到宿主机内网 IP
     network_mode: host
     restart: unless-stopped
