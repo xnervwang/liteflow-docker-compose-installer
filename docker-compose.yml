@@ -18,21 +18,11 @@ services:
       liteflow-conf-puller:
         condition: service_healthy
     healthcheck:
-      #test: ["CMD-SHELL", "[ -s /app/etc/${CONF_FILE} ] && pidof liteflow >/dev/null || exit 1"]
-      test:
-        [
-          "CMD-SHELL",
-          "echo '---HC start---'; echo CONF_FILE=${CONF_FILE}; ls -l /app/etc || true; \
-          [ -e /app/etc/${CONF_FILE} ] || { echo 'conf not found'; exit 1; }; \
-          [ -s /app/etc/${CONF_FILE} ] || { echo 'conf empty'; exit 1; }; \
-          (command -v pidof >/dev/null && pidof liteflow >/dev/null) \
-             || pgrep -fa liteflow || { echo 'liteflow process not found'; exit 1; }; \
-          echo 'HC OK'"
-        ]
+      test: ["CMD-SHELL", "[ -s /app/etc/${CONF_FILE} ] && pidof liteflow >/dev/null || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 5
-      start_period: 5s
+      start_period: 10s
     network_mode: host
     init: true
     environment:
@@ -80,7 +70,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
-      start_period: 5s
+      start_period: 10s
     environment:
       TZ: ${TZ}
       # —— 运行模式（git）：——
