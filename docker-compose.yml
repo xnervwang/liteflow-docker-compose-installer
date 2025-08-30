@@ -154,7 +154,7 @@ services:
     restart: unless-stopped
 
   ddns-go:
-    profiles: ["ddns"]
+    profiles: ["ddns-go"]
     build:
       context: https://github.com/xnervwang/ddns-go-docker.git#main
     image: xnerv/ddns-go-docker:main
@@ -195,7 +195,7 @@ services:
     restart: unless-stopped
 
   stunnel:
-    profiles: ["ddns"]
+    profiles: ["stunnel"]
     build:
       context: https://github.com/xnervwang/ddns-go-docker.git#main
     image: xnerv/ddns-go-docker:main
