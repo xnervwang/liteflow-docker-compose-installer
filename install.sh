@@ -312,6 +312,24 @@ PUBLIC_IPV4_DOMAIN="$PUBLIC_IPV4_DOMAIN" \
 PRIVATE_IPV4_DOMAIN="$PRIVATE_IPV4_DOMAIN" \
 $DCOMPOSE --env-file "$ENV_FILE" -f "$COMPOSE_DEST" -p "$COMPOSE_PROJECT_NAME" config -q
 
+# ------------ 可选构建 ------------
+# NO_IMAGE_CACHE=1 时：强制忽略缓存重新构建
+if [ "${NO_IMAGE_CACHE:-1}" -eq 1 ]; then
+  echo "[install] building images with --no-cache ..."
+  COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT_NAME" \
+  HOSTNAME="$HOSTNAME" \
+  PUBLIC_IPV4_DOMAIN="$PUBLIC_IPV4_DOMAIN" \
+  PRIVATE_IPV4_DOMAIN="$PRIVATE_IPV4_DOMAIN" \
+  $DCOMPOSE --env-file "$ENV_FILE" -f "$COMPOSE_DEST" -p "$COMPOSE_PROJECT_NAME" build --no-cache
+else
+  echo "[install] building images ..."
+  COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT_NAME" \
+  HOSTNAME="$HOSTNAME" \
+  PUBLIC_IPV4_DOMAIN="$PUBLIC_IPV4_DOMAIN" \
+  PRIVATE_IPV4_DOMAIN="$PRIVATE_IPV4_DOMAIN" \
+  $DCOMPOSE --env-file "$ENV_FILE" -f "$COMPOSE_DEST" -p "$COMPOSE_PROJECT_NAME" build
+fi
+
 # ------------ 启动（可选跳过） ------------
 if [ "${DONT_UP:-0}" -ne 1 ]; then
   echo "[install] bringing up services ..."
@@ -319,7 +337,7 @@ if [ "${DONT_UP:-0}" -ne 1 ]; then
   HOSTNAME="$HOSTNAME" \
   PUBLIC_IPV4_DOMAIN="$PUBLIC_IPV4_DOMAIN" \
   PRIVATE_IPV4_DOMAIN="$PRIVATE_IPV4_DOMAIN" \
-  $DCOMPOSE --env-file "$ENV_FILE" -f "$COMPOSE_DEST" -p "$COMPOSE_PROJECT_NAME" up -d --force-recreate --remove-orphans --no-cache
+  $DCOMPOSE --env-file "$ENV_FILE" -f "$COMPOSE_DEST" -p "$COMPOSE_PROJECT_NAME" up -d --force-recreate --remove-orphans
   echo "[install] done."
 else
   echo "[install] fetch-only mode complete (DONT_UP=1)."
