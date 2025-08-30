@@ -238,9 +238,8 @@ services:
         - CMD-SHELL
         - |
           bash -lc '
-            exec 3<>/dev/tcp/127.0.0.1/${XRAY_LISTEN_PORT:-1080} || exit 1
-            printf "\x05\x01\x00" >&3
-            dd bs=2 count=1 <&3 2>/dev/null | od -An -t x1 | grep -q "05 00"
+            hex=$(printf "%04X" $${LISTEN_PORT:-1080})
+            awk -v h="$hex" "NR>1{split(\$2,a,\":\"); if(a[2]==h && \$4==\"0A\") f=1} END{exit f?0:1}" /proc/net/tcp /proc/net/tcp6
           '
       interval: 15s
       timeout: 3s
