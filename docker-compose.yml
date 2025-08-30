@@ -197,8 +197,8 @@ services:
   stunnel:
     profiles: ["stunnel"]
     build:
-      context: https://github.com/xnervwang/ddns-go-docker.git#main
-    image: xnerv/ddns-go-docker:main
+      context: https://github.com/xnervwang/stunnel5-docker.git#main
+    image: xnerv/stunnel5-docker:main
     pull_policy: never
     network_mode: host
     environment:
