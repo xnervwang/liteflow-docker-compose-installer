@@ -310,7 +310,7 @@ COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT_NAME" \
 HOSTNAME="$HOSTNAME" \
 PUBLIC_IPV4_DOMAIN="$PUBLIC_IPV4_DOMAIN" \
 PRIVATE_IPV4_DOMAIN="$PRIVATE_IPV4_DOMAIN" \
-$DCOMPOSE --env-file "$ENV_FILE" -f "$COMPOSE_DEST" -p "$COMPOSE_PROJECT_NAME" config -q
+$DCOMPOSE --env-file "$ENV_FILE" -f "$COMPOSE_DEST" -p "$COMPOSE_PROJECT_NAME" config -q --no-cache
 
 # ------------ 启动（可选跳过） ------------
 if [ "${DONT_UP:-0}" -ne 1 ]; then
@@ -319,7 +319,7 @@ if [ "${DONT_UP:-0}" -ne 1 ]; then
   HOSTNAME="$HOSTNAME" \
   PUBLIC_IPV4_DOMAIN="$PUBLIC_IPV4_DOMAIN" \
   PRIVATE_IPV4_DOMAIN="$PRIVATE_IPV4_DOMAIN" \
-  $DCOMPOSE --env-file "$ENV_FILE" -f "$COMPOSE_DEST" -p "$COMPOSE_PROJECT_NAME" up -d --force-recreate --remove-orphans
+  $DCOMPOSE --env-file "$ENV_FILE" -f "$COMPOSE_DEST" -p "$COMPOSE_PROJECT_NAME" up -d --force-recreate --remove-orphans --no-cache
   echo "[install] done."
 else
   echo "[install] fetch-only mode complete (DONT_UP=1)."
