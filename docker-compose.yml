@@ -157,7 +157,7 @@ services:
     profiles: ["ddns-go"]
     build:
       context: https://github.com/xnervwang/ddns-go-docker.git#main
-    image: xnerv/ddns-go-docker:main
+    image: xnervwang/ddns-go-docker:main
     pull_policy: never
     # 必须 host 模式，private IPv4 才能取到宿主机内网 IP
     network_mode: host
@@ -198,7 +198,7 @@ services:
     profiles: ["stunnel"]
     build:
       context: https://github.com/xnervwang/stunnel5-docker.git#main
-    image: xnerv/stunnel5-docker:main
+    image: xnervwang/stunnel5-docker:main
     pull_policy: never
     network_mode: host
     cap_add:
@@ -214,4 +214,31 @@ services:
       STUNNEL_RUN_AS_ROOT: "yes"
     volumes:
       - ${CONF_DIR}/stunnel.pem:/app/etc/stunnel.pem:ro
+    restart: unless-stopped
+
+  xray:
+    profiles: ["xray"]
+    build:
+      context: https://github.com/xnervwang/xray-docker.git#main
+    image: xnervwang/xray:latest
+    network_mode: host
+    volumes:
+      - ${CONF_DIR}/xray.json.template:/app/etc/xray.json.template:ro
+    environment:
+      LOG_LEVEL: warning
+      LISTEN_PORT: "1080"
+      LISTEN_IP: "127.0.0.1"
+      LISTEN_PROTOCOL: "socks"
+      OUTBOUND_PROTOCOL: "socks"
+      OUTBOUND_IP: "127.0.0.1"
+      OUTBOUND_PORT: "8386"
+      RULE_PRIVATE_IP: "geoip:private"
+      RULE_PROXY_SITE: "geosite:cn"
+      RULE_PROXY_IP: "geoip:cn"
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 1080 || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
     restart: unless-stopped
