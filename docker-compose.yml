@@ -213,5 +213,5 @@ services:
       STUNNEL_CAFILE: ${STUNNEL_CAFILE}
       STUNNEL_RUN_AS_ROOT: "yes"
     volumes:
-      - ${CONF_DIR}/stunnel.pem:/etc/stunnel/stunnel.pem:ro
+      - ${CONF_DIR}/stunnel.pem:/app/etc/stunnel.pem:ro
     restart: unless-stopped
