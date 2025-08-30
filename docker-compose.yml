@@ -234,10 +234,16 @@ services:
       XRAY_RULE_PROXY_SITE: ${XRAY_RULE_PROXY_SITE}
       XRAY_RULE_PROXY_IP: ${XRAY_RULE_PROXY_IP}
     healthcheck:
-      test: ["CMD-SHELL", "nc -z 127.0.0.1 1080 || exit 1"]
+      test:
+        - CMD-SHELL
+        - |
+          bash -lc '
+            exec 3<>/dev/tcp/127.0.0.1/${XRAY_LISTEN_PORT:-1080} || exit 1
+            printf "\x05\x01\x00" >&3
+            dd bs=2 count=1 <&3 2>/dev/null | od -An -t x1 | grep -q "05 00"
+          '
       interval: 15s
       timeout: 3s
       retries: 10
       start_period: 10s
     restart: unless-stopped
-
