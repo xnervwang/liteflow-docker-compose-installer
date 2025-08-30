@@ -161,7 +161,6 @@ services:
     pull_policy: never
     # 必须 host 模式，private IPv4 才能取到宿主机内网 IP
     network_mode: host
-    restart: unless-stopped
     environment:
       TZ: ${DDNS_GO_TZ}
       LANG: ${DDNS_GO_LANG}
@@ -193,4 +192,25 @@ services:
       # —— Web 登录（必需：用户名与 bcrypt 哈希）——
       WEB_USERNAME: ${DDNS_GO_WEB_USERNAME}
       WEB_PASSWORD_HASH: ${DDNS_GO_WEB_PASSWORD_HASH}
+    restart: unless-stopped
 
+  stunnel:
+    profiles: ["ddns"]
+    build:
+      context: https://github.com/xnervwang/ddns-go-docker.git#main
+    image: xnerv/ddns-go-docker:main
+    pull_policy: never
+    network_mode: host
+    ports:
+      - "443:443"
+    environment:
+      STUNNEL_SERVICE_NAME: ${STUNNEL_SERVICE_NAME}
+      STUNNEL_CLIENT: ${STUNNEL_CLIENT}
+      STUNNEL_ACCEPT: ${STUNNEL_ACCEPT}
+      STUNNEL_CONNECT: ${STUNNEL_CONNECT}
+      STUNNEL_CERT: ${STUNNEL_CERT}
+      STUNNEL_KEY: ${STUNNEL_KEY}
+      STUNNEL_CAFILE: ${STUNNEL_CAFILE}
+    volumes:
+      - ${CONF_DIR}/stunnel.pem:/etc/stunnel/stunnel.pem:ro
+    restart: unless-stopped
