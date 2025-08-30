@@ -201,8 +201,6 @@ services:
     image: xnerv/ddns-go-docker:main
     pull_policy: never
     network_mode: host
-    ports:
-      - "443:443"
     environment:
       STUNNEL_SERVICE_NAME: ${STUNNEL_SERVICE_NAME}
       STUNNEL_CLIENT: ${STUNNEL_CLIENT}
