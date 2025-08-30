@@ -225,16 +225,16 @@ services:
     volumes:
       - ${CONF_DIR}/xray.json.template:/app/etc/xray.json.template:ro
     environment:
-      LOG_LEVEL: warning
-      LISTEN_PORT: "1080"
-      LISTEN_IP: "127.0.0.1"
-      LISTEN_PROTOCOL: "socks"
-      OUTBOUND_PROTOCOL: "socks"
-      OUTBOUND_IP: "127.0.0.1"
-      OUTBOUND_PORT: "8386"
-      RULE_PRIVATE_IP: "geoip:private"
-      RULE_PROXY_SITE: "geosite:cn"
-      RULE_PROXY_IP: "geoip:cn"
+      XRAY_LOG_LEVEL: ${XRAY_LOG_LEVEL}
+      XRAY_LISTEN_PORT: "${XRAY_LISTEN_PORT}"
+      XRAY_LISTEN_IP: ${XRAY_LISTEN_IP}
+      XRAY_LISTEN_PROTOCOL: ${XRAY_LISTEN_PROTOCOL}
+      XRAY_OUTBOUND_PROTOCOL: ${XRAY_OUTBOUND_PROTOCOL}
+      XRAY_OUTBOUND_IP: ${XRAY_OUTBOUND_IP}
+      XRAY_OUTBOUND_PORT: "${XRAY_OUTBOUND_PORT}"
+      XRAY_RULE_PRIVATE_IP: ${XRAY_RULE_PRIVATE_IP}
+      XRAY_RULE_PROXY_SITE: ${XRAY_RULE_PROXY_SITE}
+      XRAY_RULE_PROXY_IP: ${XRAY_RULE_PROXY_IP}
     healthcheck:
       test: ["CMD-SHELL", "nc -z 127.0.0.1 1080 || exit 1"]
       interval: 15s
