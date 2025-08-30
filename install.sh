@@ -57,6 +57,13 @@ Optional:
   ENV_TEMPLATE_DEST      Local filename for template (default: env.template)
   ENV_FILE               Local .env path (default: .env)
   DONT_UP=1              Only fetch & generate .env, do not run 'compose up'
+
+  # ---- 新增（可选/有条件必填）----
+  STUNNEL_PEM_SRC        Source of stunnel.pem (URL or git single-file)
+  STUNNEL_PEM_DEST       Local filename for pem (default: stunnel.pem; saved in CWD)
+  # 规则：
+  # - 若 COMPOSE_PROFILES 包含 'stunnel'，则必须设置 STUNNEL_PEM_SRC，且成功下载到当前目录。
+  # - 若 COMPOSE_PROFILES 不包含 'stunnel' 但设置了 STUNNEL_PEM_SRC，仅告警，继续执行。
 Flags:
   -y                     non-interactive (assume yes on overwrite, etc.)
 EOF
@@ -83,6 +90,9 @@ req ENV_TMPL_SRC
 COMPOSE_DEST="${COMPOSE_DEST:-docker-compose.yml}"
 ENV_TEMPLATE_DEST="${ENV_TEMPLATE_DEST:-env.template}"
 ENV_FILE="${ENV_FILE:-.env}"
+
+# ---- 新增：stunnel pem 目标文件名（默认当前目录下的 stunnel.pem）----
+STUNNEL_PEM_DEST="${STUNNEL_PEM_DEST:-stunnel.pem}"
 
 # ------------ 依赖检测 ------------
 need() { command -v "$1" >/dev/null 2>&1 || { echo "Error: '$1' not found"; exit 127; }; }
@@ -257,6 +267,30 @@ fetch_any "$ENV_TMPL_SRC" "$ENV_TEMPLATE_DEST"
 
 [ -s "$COMPOSE_DEST" ] || { echo "Error: empty compose file: $COMPOSE_DEST"; exit 20; }
 [ -s "$ENV_TEMPLATE_DEST" ] || { echo "Error: empty env template: $ENV_TEMPLATE_DEST"; exit 21; }
+
+# ---- 新增：按 profiles 处理 stunnel.pem 下载 ----
+_profiles_normalized=",$(printf '%s' "${COMPOSE_PROFILES:-}" | tr -d ' '),"
+case "$_profiles_normalized" in
+  *,stunnel,*)
+    # profiles 包含 stunnel —— 必须设置 STUNNEL_PEM_SRC 并成功下载到当前目录
+    if [ -z "${STUNNEL_PEM_SRC:-}" ]; then
+      echo "Error: COMPOSE_PROFILES includes 'stunnel' but STUNNEL_PEM_SRC is not set"
+      exit 22
+    fi
+    # 目标文件（当前目录）
+    pem_dest="./${STUNNEL_PEM_DEST}"
+    maybe_overwrite "$pem_dest"
+    fetch_any "$STUNNEL_PEM_SRC" "$pem_dest"
+    [ -s "$pem_dest" ] || { echo "Error: empty pem file downloaded: $pem_dest"; exit 23; }
+    echo "[install] stunnel pem written -> $pem_dest"
+    ;;
+  *)
+    # profiles 不包含 stunnel —— 若设置了 STUNNEL_PEM_SRC，仅告警，不中止
+    if [ -n "${STUNNEL_PEM_SRC:-}" ]; then
+      echo "[install][warn] COMPOSE_PROFILES does not include 'stunnel', but STUNNEL_PEM_SRC is set; skip downloading."
+    fi
+    ;;
+esac
 
 # ------------ 生成 .env ------------
 maybe_overwrite "$ENV_FILE"
