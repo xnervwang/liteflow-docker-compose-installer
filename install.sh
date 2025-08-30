@@ -347,3 +347,4 @@ fi
 if [ "$need_git_once" -eq 0 ]; then
   : # 使用了 git；无动作，仅占位
 fi
+
