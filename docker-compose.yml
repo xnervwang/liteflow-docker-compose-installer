@@ -19,10 +19,10 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "[ -s /app/etc/${CONF_FILE} ] && pidof liteflow >/dev/null || exit 1"]
-      interval: 5s
-      timeout: 3s
+      interval: 60s
+      timeout: 5s
       retries: 5
-      start_period: 20s
+      start_period: 30s
     network_mode: host
     init: true
     environment:
@@ -57,10 +57,10 @@ services:
           [ -s /app/etc/${CONF_FILE} ] || exit 1
           # docker-socket-proxy 的标准 _ping 接口应返回 "OK"
           wget -qO- http://dockerproxy:2375/_ping | grep -q '^OK$'
-      interval: 15s
-      timeout: 3s
+      interval: 60s
+      timeout: 5s
       retries: 5
-      start_period: 10s
+      start_period: 30s
     environment:
       TZ: ${TZ}
       DOCKER_API: ${DOCKER_API}
@@ -79,10 +79,10 @@ services:
     pull_policy: never
     healthcheck:
       test: ["CMD-SHELL","[ -s /app/etc/${CONF_FILE} ] && [ -f ${PULLER_READY_FLAG} ]"]
-      interval: 5s
-      timeout: 3s
+      interval: 60s
+      timeout: 5s
       retries: 5
-      start_period: 10s
+      start_period: 30s
     environment:
       TZ: ${TZ}
       # —— 运行模式（git）：——
@@ -118,10 +118,10 @@ services:
           # 检查 TCP 监听：/proc/net/tcp{,6} 中状态 0A=LISTEN
           hex=$(printf "%04X" $${SS_LOCAL_PORT:-8387})
           awk -v h="$hex" 'NR>1{split($2,a,":"); if(a[2]==h && $4=="0A") f=1} END{exit f?0:1}' /proc/net/tcp /proc/net/tcp6
-      interval: 15s
-      timeout: 3s
+      interval: 60s
+      timeout: 5s
       retries: 5
-      start_period: 5s
+      start_period: 30s
     entrypoint: |
       /bin/sh -eu -c '
       : "$${SERVER_ADDR:?required}"
@@ -156,10 +156,10 @@ services:
         - |
           hex=$(printf "%04X" $${SS_SERVER_PORT:-8388})
           awk -v h="$hex" 'NR>1{split($2,a,":"); if(a[2]==h && $4=="0A") f=1} END{exit f?0:1}' /proc/net/tcp /proc/net/tcp6
-      interval: 15s
-      timeout: 3s
+      interval: 60s
+      timeout: 5s
       retries: 5
-      start_period: 5s
+      start_period: 30s
     environment:
       TZ: ${TZ}
       SERVER_ADDR: ${SS_SERVER_BIND_ADDR}
@@ -187,10 +187,10 @@ services:
         - CMD-SHELL
         - |
           wget -qO- http://127.0.0.1:2375/_ping | grep -q '^OK$'
-      interval: 15s
-      timeout: 3s
+      interval: 60s
+      timeout: 5s
       retries: 5
-      start_period: 5s
+      start_period: 30s
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     restart: unless-stopped
@@ -205,10 +205,10 @@ services:
     network_mode: host
     healthcheck:
       test: ["CMD-SHELL", "pidof ddns-go >/dev/null"]
-      interval: 30s
-      timeout: 3s
+      interval: 60s
+      timeout: 5s
       retries: 5
-      start_period: 10s
+      start_period: 30s
     environment:
       TZ: ${DDNS_GO_TZ}
       LANG: ${DDNS_GO_LANG}
@@ -257,10 +257,10 @@ services:
         - |
           hex=$(printf "%04X" $${STUNNEL_ACCEPT##*:})
           awk -v h="$hex" 'NR>1{split($2,a,":"); if(a[2]==h && $4=="0A") f=1} END{exit f?0:1}' /proc/net/tcp /proc/net/tcp6
-      interval: 15s
-      timeout: 3s
+      interval: 60s
+      timeout: 5s
       retries: 5
-      start_period: 5s
+      start_period: 30s
     environment:
       STUNNEL_SERVICE_NAME: ${STUNNEL_SERVICE_NAME}
       STUNNEL_CLIENT: ${STUNNEL_CLIENT}
@@ -299,8 +299,8 @@ services:
             hex=$(printf "%04X" $${LISTEN_PORT:-1080})
             awk -v h="$hex" "NR>1{split(\$2,a,\":\"); if(a[2]==h && \$4==\"0A\") f=1} END{exit f?0:1}" /proc/net/tcp /proc/net/tcp6
           '
-      interval: 15s
-      timeout: 3s
-      retries: 10
-      start_period: 10s
+      interval: 60s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     restart: unless-stopped
