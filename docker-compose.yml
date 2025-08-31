@@ -49,6 +49,18 @@ services:
       dockerproxy:
         condition: service_started
     # 不要使用host网络，否则无法连接dockerproxy，因为后者不使用host网络。
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - |
+          set -e
+          [ -s /app/etc/${CONF_FILE} ] || exit 1
+          # docker-socket-proxy 的标准 _ping 接口应返回 "OK"
+          wget -qO- http://dockerproxy:2375/_ping | grep -q '^OK$'
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
     environment:
       TZ: ${TZ}
       DOCKER_API: ${DOCKER_API}
@@ -99,6 +111,17 @@ services:
       PASSWORD: ${SS_PASSWORD}
       METHOD: ${SS_METHOD}
       TIMEOUT: "${SS_LOCAL_TIMEOUT}"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - |
+          # 检查 TCP 监听：/proc/net/tcp{,6} 中状态 0A=LISTEN
+          hex=$(printf "%04X" ${SS_LOCAL_PORT:-8387})
+          awk -v h="$hex" 'NR>1{split($2,a,":"); if(a[2]==h && $4=="0A") f=1} END{exit f?0:1}' /proc/net/tcp /proc/net/tcp6
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
     entrypoint: |
       /bin/sh -eu -c '
       : "$${SERVER_ADDR:?required}"
@@ -127,6 +150,16 @@ services:
     profiles: ["ss-server"]
     image: shadowsocks/shadowsocks-libev:latest
     network_mode: host
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - |
+          hex=$(printf "%04X" ${SS_SERVER_PORT:-8388})
+          awk -v h="$hex" 'NR>1{split($2,a,":"); if(a[2]==h && $4=="0A") f=1} END{exit f?0:1}' /proc/net/tcp /proc/net/tcp6
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
     environment:
       TZ: ${TZ}
       SERVER_ADDR: ${SS_SERVER_BIND_ADDR}
@@ -149,6 +182,15 @@ services:
       CONTAINERS: "1"
       POST: "1"
       CONTAINERS_KILL: "1"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - |
+          wget -qO- http://127.0.0.1:2375/_ping | grep -q '^OK$'
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     restart: unless-stopped
@@ -161,6 +203,12 @@ services:
     pull_policy: never
     # 必须 host 模式，private IPv4 才能取到宿主机内网 IP
     network_mode: host
+    healthcheck:
+      test: ["CMD-SHELL", "pidof ddns-go >/dev/null"]
+      interval: 30s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
     environment:
       TZ: ${DDNS_GO_TZ}
       LANG: ${DDNS_GO_LANG}
@@ -203,6 +251,16 @@ services:
     network_mode: host
     cap_add:
       - NET_BIND_SERVICE
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - |
+          hex=$(printf "%04X" ${STUNNEL_ACCEPT##*:})
+          awk -v h="$hex" 'NR>1{split($2,a,":"); if(a[2]==h && $4=="0A") f=1} END{exit f?0:1}' /proc/net/tcp /proc/net/tcp6
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
     environment:
       STUNNEL_SERVICE_NAME: ${STUNNEL_SERVICE_NAME}
       STUNNEL_CLIENT: ${STUNNEL_CLIENT}
