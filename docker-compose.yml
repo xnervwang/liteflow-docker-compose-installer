@@ -3,6 +3,8 @@ services:
     profiles: ["liteflow"]
     build:
       context: https://github.com/xnervwang/liteflow.git#master
+      # 否则有时会遇到apk拉取问题
+      network: host
       args:
         # Don't use `local` otherwise Liteflow/Dockerfile would run `mv /tmp/Liteflow /source/Liteflow`,
         # which just moves a repo snapshot which doesn't have .git subfolder, and further `git submodule`
@@ -39,6 +41,7 @@ services:
     profiles: ["watcher"]
     build:
       context: https://github.com/xnervwang/liteflow-conf-watcher-docker.git#main
+      network: host
     image: xnervwang/liteflow-conf-watcher:main
     pull_policy: never
     depends_on:
@@ -75,6 +78,7 @@ services:
     profiles: ["puller"]
     build:
       context: https://github.com/xnervwang/liteflow-conf-puller-docker.git#main
+      network: host
     image: xnervwang/liteflow-conf-puller:main
     pull_policy: never
     healthcheck:
@@ -199,6 +203,7 @@ services:
     profiles: ["ddns-go"]
     build:
       context: https://github.com/xnervwang/ddns-go-docker.git#main
+      network: host
     image: xnervwang/ddns-go-docker:main
     pull_policy: never
     # 必须 host 模式，private IPv4 才能取到宿主机内网 IP
@@ -246,6 +251,7 @@ services:
     profiles: ["stunnel"]
     build:
       context: https://github.com/xnervwang/stunnel5-docker.git#main
+      network: host
     image: xnervwang/stunnel5-docker:main
     pull_policy: never
     network_mode: host
@@ -278,6 +284,7 @@ services:
     profiles: ["xray"]
     build:
       context: https://github.com/xnervwang/xray-docker.git#main
+      network: host
     image: xnervwang/xray:latest
     network_mode: host
     environment:
