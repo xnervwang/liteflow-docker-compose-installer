@@ -120,7 +120,7 @@ services:
         - CMD-SHELL
         - |
           # 检查 TCP 监听：/proc/net/tcp{,6} 中状态 0A=LISTEN
-          hex=$(printf "%04X" $${SS_LOCAL_PORT:-8387})
+          hex=$(printf "%04X" $${SS_LOCAL_PORT})
           awk -v h="$$hex" 'NR>1{split($2,a,":"); if(a[2]==h && $4=="0A") f=1} END{exit f?0:1}' /proc/net/tcp /proc/net/tcp6
       interval: 15s
       timeout: 3s
@@ -138,11 +138,11 @@ services:
       cat > /tmp/config.json <<EOF
       {
           "server":"$${SERVER_ADDR}",
-          "server_port":$${SERVER_PORT:-8388},
+          "server_port":$${SERVER_PORT},
           "local_address":"$${LOCAL_ADDR}",
-          "local_port":$${LOCAL_PORT:-8387},
+          "local_port":$${LOCAL_PORT},
           "password":"$${PASSWORD}",
-          "timeout":$${TIMEOUT:-300},
+          "timeout":$${TIMEOUT},
           "method":"$${METHOD}"
       }
       EOF
@@ -158,7 +158,7 @@ services:
       test:
         - CMD-SHELL
         - |
-          hex=$(printf "%04X" $${SS_SERVER_PORT:-8388})
+          hex=$(printf "%04X" $${SS_SERVER_PORT})
           awk -v h="$$hex" 'NR>1{split($2,a,":"); if(a[2]==h && $4=="0A") f=1} END{exit f?0:1}' /proc/net/tcp /proc/net/tcp6
       interval: 15s
       timeout: 3s
@@ -303,7 +303,7 @@ services:
         - CMD-SHELL
         - |
           bash -lc '
-            hex=$(printf "%04X" $${LISTEN_PORT:-1080})
+            hex=$(printf "%04X" $${LISTEN_PORT})
             awk -v h="$$hex" "NR>1{split(\$2,a,\":\"); if(a[2]==h && \$4==\"0A\") f=1} END{exit f?0:1}" /proc/net/tcp /proc/net/tcp6
           '
       interval: 15s
