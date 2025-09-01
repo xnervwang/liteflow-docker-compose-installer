@@ -56,9 +56,6 @@ Optional:
   COMPOSE_DEST           Local filename for compose (default: docker-compose.yml)
   ENV_TEMPLATE_DEST      Local filename for template (default: env.template)
   ENV_FILE               Local .env path (default: .env)
-  DONT_UP=1              Only fetch & generate .env, do not run 'compose up'
-
-  # ---- 新增（可选/有条件必填）----
   STUNNEL_PEM_SRC        Source of stunnel.pem (URL or git single-file)
   STUNNEL_PEM_DEST       Local filename for pem (default: stunnel.pem; saved in CWD)
   # 规则：
@@ -80,10 +77,18 @@ done
 # ------------ 必填变量校验 ------------
 req() { eval "[ -n \"\${$1:-}\" ]" || { echo "Error: missing $1"; exit 2; }; }
 
+# [ddns-go] 新增：根据 COMPOSE_PROFILES 判定是否需要 ddns-go 相关域名
+REQ_DDNS=0
+_ddns_profiles=",$(printf '%s' "${COMPOSE_PROFILES:-}" | tr -d ' '),"
+case "$_ddns_profiles" in
+  *,ddns-go,*) REQ_DDNS=1 ;;
+esac
+
 req COMPOSE_PROJECT_NAME
 req HOSTNAME
-req PUBLIC_IPV4_DOMAIN
-req PRIVATE_IPV4_DOMAIN
+# [ddns-go] 仅在启用 ddns-go 时校验域名
+[ "${REQ_DDNS:-0}" -eq 1 ] && req PUBLIC_IPV4_DOMAIN
+[ "${REQ_DDNS:-0}" -eq 1 ] && req PRIVATE_IPV4_DOMAIN
 req COMPOSE_SRC
 req ENV_TMPL_SRC
 
@@ -299,8 +304,9 @@ cp -f "$ENV_TEMPLATE_DEST" "$ENV_FILE"
 # 写入四个关键变量（其余保留模板原值）
 set_kv COMPOSE_PROJECT_NAME "$COMPOSE_PROJECT_NAME" "$ENV_FILE"
 set_kv HOSTNAME "$HOSTNAME" "$ENV_FILE"
-set_kv PUBLIC_IPV4_DOMAIN "$PUBLIC_IPV4_DOMAIN" "$ENV_FILE"
-set_kv PRIVATE_IPV4_DOMAIN "$PRIVATE_IPV4_DOMAIN" "$ENV_FILE"
+# [ddns-go] 仅在变量存在时写入，避免空值污染
+[ -n "${PUBLIC_IPV4_DOMAIN:-}" ]  && set_kv PUBLIC_IPV4_DOMAIN  "${PUBLIC_IPV4_DOMAIN:-}"  "$ENV_FILE"
+[ -n "${PRIVATE_IPV4_DOMAIN:-}" ] && set_kv PRIVATE_IPV4_DOMAIN "${PRIVATE_IPV4_DOMAIN:-}" "$ENV_FILE"
 
 echo "[install] .env written -> $ENV_FILE"
 
@@ -308,8 +314,8 @@ echo "[install] .env written -> $ENV_FILE"
 echo "[install] validating compose config ..."
 COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT_NAME" \
 HOSTNAME="$HOSTNAME" \
-PUBLIC_IPV4_DOMAIN="$PUBLIC_IPV4_DOMAIN" \
-PRIVATE_IPV4_DOMAIN="$PRIVATE_IPV4_DOMAIN" \
+PUBLIC_IPV4_DOMAIN="${PUBLIC_IPV4_DOMAIN:-}" \
+PRIVATE_IPV4_DOMAIN="${PRIVATE_IPV4_DOMAIN:-}" \
 $DCOMPOSE --env-file "$ENV_FILE" -f "$COMPOSE_DEST" -p "$COMPOSE_PROJECT_NAME" config -q
 
 # ------------ 可选构建 ------------
@@ -318,33 +324,28 @@ if [ "${NO_IMAGE_CACHE:-1}" -eq 1 ]; then
   echo "[install] building images with --no-cache ..."
   COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT_NAME" \
   HOSTNAME="$HOSTNAME" \
-  PUBLIC_IPV4_DOMAIN="$PUBLIC_IPV4_DOMAIN" \
-  PRIVATE_IPV4_DOMAIN="$PRIVATE_IPV4_DOMAIN" \
+  PUBLIC_IPV4_DOMAIN="${PUBLIC_IPV4_DOMAIN:-}" \
+  PRIVATE_IPV4_DOMAIN="${PRIVATE_IPV4_DOMAIN:-}" \
   $DCOMPOSE --env-file "$ENV_FILE" -f "$COMPOSE_DEST" -p "$COMPOSE_PROJECT_NAME" build --no-cache
 else
   echo "[install] building images ..."
   COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT_NAME" \
   HOSTNAME="$HOSTNAME" \
-  PUBLIC_IPV4_DOMAIN="$PUBLIC_IPV4_DOMAIN" \
-  PRIVATE_IPV4_DOMAIN="$PRIVATE_IPV4_DOMAIN" \
+  PUBLIC_IPV4_DOMAIN="${PUBLIC_IPV4_DOMAIN:-}" \
+  PRIVATE_IPV4_DOMAIN="${PRIVATE_IPV4_DOMAIN:-}" \
   $DCOMPOSE --env-file "$ENV_FILE" -f "$COMPOSE_DEST" -p "$COMPOSE_PROJECT_NAME" build
 fi
 
-# ------------ 启动（可选跳过） ------------
-if [ "${DONT_UP:-0}" -ne 1 ]; then
-  echo "[install] bringing up services ..."
-  COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT_NAME" \
-  HOSTNAME="$HOSTNAME" \
-  PUBLIC_IPV4_DOMAIN="$PUBLIC_IPV4_DOMAIN" \
-  PRIVATE_IPV4_DOMAIN="$PRIVATE_IPV4_DOMAIN" \
-  $DCOMPOSE --env-file "$ENV_FILE" -f "$COMPOSE_DEST" -p "$COMPOSE_PROJECT_NAME" up -d --force-recreate --remove-orphans
-  echo "[install] done."
-else
-  echo "[install] fetch-only mode complete (DONT_UP=1)."
-fi
+# ------------ 启动 ------------
+echo "[install] bringing up services ..."
+COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT_NAME" \
+HOSTNAME="$HOSTNAME" \
+PUBLIC_IPV4_DOMAIN="${PUBLIC_IPV4_DOMAIN:-}" \
+PRIVATE_IPV4_DOMAIN="${PRIVATE_IPV4_DOMAIN:-}" \
+$DCOMPOSE --env-file "$ENV_FILE" -f "$COMPOSE_DEST" -p"$COMPOSE_PROJECT_NAME" up -d --force-recreate --remove-orphans
+echo "[install] done."
 
 # ------------ 额外提示 ------------
 if [ "$need_git_once" -eq 0 ]; then
   : # 使用了 git；无动作，仅占位
 fi
-
