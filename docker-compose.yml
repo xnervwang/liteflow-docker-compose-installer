@@ -120,7 +120,7 @@ services:
         - CMD-SHELL
         - |
           # 检查 TCP 监听：/proc/net/tcp{,6} 中状态 0A=LISTEN
-          hex=$(printf "%04X" $${SS_LOCAL_PORT})
+          hex=$(printf "%04X" $${LOCAL_PORT})
           awk -v h="$$hex" 'NR>1{split($2,a,":"); if(a[2]==h && $4=="0A") f=1} END{exit f?0:1}' /proc/net/tcp /proc/net/tcp6
       interval: 15s
       timeout: 3s
@@ -158,7 +158,7 @@ services:
       test:
         - CMD-SHELL
         - |
-          hex=$(printf "%04X" $${SS_SERVER_PORT})
+          hex=$(printf "%04X" $${SERVER_PORT})
           awk -v h="$$hex" 'NR>1{split($2,a,":"); if(a[2]==h && $4=="0A") f=1} END{exit f?0:1}' /proc/net/tcp /proc/net/tcp6
       interval: 15s
       timeout: 3s
@@ -261,7 +261,7 @@ services:
       test:
         - CMD-SHELL
         - |
-          hex=$(printf "%04X" $${STUNNEL_ACCEPT##*:})
+          hex=$(printf "%04X" $${ACCEPT##*:})
           awk -v h="$$hex" 'NR>1{split($2,a,":"); if(a[2]==h && $4=="0A") f=1} END{exit f?0:1}' /proc/net/tcp /proc/net/tcp6
       interval: 15s
       timeout: 3s
