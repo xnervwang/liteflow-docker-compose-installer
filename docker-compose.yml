@@ -276,6 +276,9 @@ services:
       KEY: ${STUNNEL_KEY}
       CAFILE: ${STUNNEL_CAFILE}
       RUN_AS_ROOT: "yes"
+      STUNNEL_DEBUG: debug
+      STUNNEL_LOGID: sequential
+      STUNNEL_OUTPUT: /dev/stdout
     volumes:
       - ${CONF_DIR}/stunnel.pem:/app/etc/stunnel.pem:ro
     restart: unless-stopped
