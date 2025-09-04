@@ -166,7 +166,7 @@ services:
       start_period: 5s
     environment:
       TZ: ${TZ}
-      SERVER_ADDR: ${SS_SERVER_BIND_ADDR}
+      SERVER_ADDR: ${SS_SERVER_ADDR}
       SERVER_PORT: "${SS_SERVER_PORT}"
       PASSWORD: ${SS_PASSWORD}
       METHOD: ${SS_METHOD}
