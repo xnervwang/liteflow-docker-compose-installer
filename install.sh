@@ -56,11 +56,22 @@ Optional:
   COMPOSE_DEST           Local filename for compose (default: docker-compose.yml)
   ENV_TEMPLATE_DEST      Local filename for template (default: env.template)
   ENV_FILE               Local .env path (default: .env)
-  STUNNEL_PEM_SRC        Source of stunnel.pem (URL or git single-file)
-  STUNNEL_PEM_DEST       Local filename for pem (default: stunnel.pem; saved in CWD)
-  # 规则：
-  # - 若 COMPOSE_PROFILES 包含 'stunnel'，则必须设置 STUNNEL_PEM_SRC，且成功下载到当前目录。
-  # - 若 COMPOSE_PROFILES 不包含 'stunnel' 但设置了 STUNNEL_PEM_SRC，仅告警，继续执行。
+
+  # stunnel: 
+  #   - 当 profile 含 'stunnel-mtls' 时：必须提供以下三者
+  #     STUNNEL_CAFILE_SRC / STUNNEL_CERT_SRC / STUNNEL_KEY_SRC
+  #   - 当 profile 含 'stunnel-https' 时：必须提供以下两者
+  #     STUNNEL_CERT_SRC / STUNNEL_KEY_SRC
+
+  STUNNEL_CAFILE_SRC     Source of CA file (URL or git single-file)
+  STUNNEL_CERT_SRC       Source of cert (URL or git single-file)
+  STUNNEL_KEY_SRC        Source of private key (URL or git single-file)
+
+  # 目标文件名（可选）：若未设置，将自动使用来源 URL/单文件规格的原始文件名
+  STUNNEL_CAFILE_DEST    Local filename for CA
+  STUNNEL_CERT_DEST      Local filename for cert
+  STUNNEL_KEY_DEST       Local filename for key
+
 Flags:
   -y                     non-interactive (assume yes on overwrite, etc.)
 EOF
@@ -77,7 +88,7 @@ done
 # ------------ 必填变量校验 ------------
 req() { eval "[ -n \"\${$1:-}\" ]" || { echo "Error: missing $1"; exit 2; }; }
 
-# [ddns-go] 新增：根据 COMPOSE_PROFILES 判定是否需要 ddns-go 相关域名
+# [ddns-go] 仅在启用 ddns-go profile 时校验域名
 REQ_DDNS=0
 _ddns_profiles=",$(printf '%s' "${COMPOSE_PROFILES:-}" | tr -d ' '),"
 case "$_ddns_profiles" in
@@ -86,7 +97,6 @@ esac
 
 req COMPOSE_PROJECT_NAME
 req HOSTNAME
-# [ddns-go] 仅在启用 ddns-go 时校验域名
 [ "${REQ_DDNS:-0}" -eq 1 ] && req PUBLIC_IPV4_DOMAIN
 [ "${REQ_DDNS:-0}" -eq 1 ] && req PRIVATE_IPV4_DOMAIN
 req COMPOSE_SRC
@@ -95,9 +105,6 @@ req ENV_TMPL_SRC
 COMPOSE_DEST="${COMPOSE_DEST:-docker-compose.yml}"
 ENV_TEMPLATE_DEST="${ENV_TEMPLATE_DEST:-env.template}"
 ENV_FILE="${ENV_FILE:-.env}"
-
-# ---- 新增：stunnel pem 目标文件名（默认当前目录下的 stunnel.pem）----
-STUNNEL_PEM_DEST="${STUNNEL_PEM_DEST:-stunnel.pem}"
 
 # ------------ 依赖检测 ------------
 need() { command -v "$1" >/dev/null 2>&1 || { echo "Error: '$1' not found"; exit 127; }; }
@@ -141,7 +148,7 @@ curl_fetch() {
   hdr=""
   if [ -n "${AUTH_HEADER:-}" ]; then
     hdr="$AUTH_HEADER"
-  elif [ -n "${TOKEN:-${GITHUB_TOKEN:-}}" ]; then
+  elif [ -n "${TOKEN:-${GITHUB_TOKEN:-}}" ] ; then
     hdr="Authorization: Bearer ${TOKEN:-${GITHUB_TOKEN}}"
   fi
   echo "[fetch] http(s): $(redact_url "$src") -> $dest"
@@ -203,14 +210,12 @@ git_sparse_fetch() {
     elif [ -n "${TOKEN:-${GITHUB_TOKEN:-}}" ]; then
       git -C "$tmp" -c http.extraHeader="Authorization: Bearer ${TOKEN:-${GITHUB_TOKEN}}" fetch --depth 1 origin "$branch" >/dev/null
     else
-      # 无 token，尝试公共访问
       git -C "$tmp" fetch -q --depth 1 origin "$branch" >/dev/null 2>&1 || {
         echo "Error: https git needs TOKEN or AUTH_HEADER for private repo"
         exit 13
       }
     fi
   else
-    # SSH 或本地/其他协议
     if [ -n "$ssh_cmd" ]; then
       GIT_SSH_COMMAND="$ssh_cmd" git -C "$tmp" fetch --depth 1 origin "$branch" >/dev/null
     else
@@ -227,7 +232,6 @@ git_sparse_fetch() {
 fetch_any() {
   # fetch_any <SRC> <DEST>
   src="$1"; dest="$2"
-
   case "$src" in
     http://*|https://*)
       curl_fetch "$src" "$dest"
@@ -238,6 +242,37 @@ fetch_any() {
     *)
       echo "Error: unsupported source: $src"
       exit 15
+      ;;
+  esac
+}
+
+infer_basename_from_src() {
+  # infer_basename_from_src <SRC>
+  # 支持：
+  #   - http(s)://.../path/to/file.ext[?query][#frag]
+  #   - repo.git#branch:path/to/file.ext
+  src="$1"
+  case "$src" in
+    http://*|https://*)
+      nofrag="${src%%#*}"
+      noquery="${nofrag%%\?*}"
+      trimmed="${noquery%/}"
+      echo "${trimmed##*/}"
+      ;;
+    *\#*:*|*.git\#*:*|git@*|ssh://*)
+      case "$src" in
+        *\#*:* )
+          path_part="${src#*#}"
+          path_part="${path_part#*:}"
+          ;;
+        *)
+          path_part="$src"
+          ;;
+      esac
+      echo "${path_part##*/}"
+      ;;
+    *)
+      echo ""
       ;;
   esac
 }
@@ -263,7 +298,7 @@ maybe_overwrite() {
   case "$ans" in y|Y|yes|YES) : ;; *) echo "Aborted."; exit 3 ;; esac
 }
 
-# ------------ 下载两个文件 ------------
+# ------------ 下载 compose 与 env.template ------------
 maybe_overwrite "$COMPOSE_DEST"
 fetch_any "$COMPOSE_SRC" "$COMPOSE_DEST"
 
@@ -273,38 +308,117 @@ fetch_any "$ENV_TMPL_SRC" "$ENV_TEMPLATE_DEST"
 [ -s "$COMPOSE_DEST" ] || { echo "Error: empty compose file: $COMPOSE_DEST"; exit 20; }
 [ -s "$ENV_TEMPLATE_DEST" ] || { echo "Error: empty env template: $ENV_TEMPLATE_DEST"; exit 21; }
 
-# ---- 新增：按 profiles 处理 stunnel.pem 下载 ----
+# ------------ 按 profiles 处理 stunnel 三件套下载 ------------
 _profiles_normalized=",$(printf '%s' "${COMPOSE_PROFILES:-}" | tr -d ' '),"
+
+# 新逻辑：精确检测 stunnel-mtls / stunnel-https
+HAS_STUNNEL_MTLS=0
+HAS_STUNNEL_HTTPS=0
 case "$_profiles_normalized" in
-  *,stunnel,*)
-    # profiles 包含 stunnel —— 必须设置 STUNNEL_PEM_SRC 并成功下载到当前目录
-    if [ -z "${STUNNEL_PEM_SRC:-}" ]; then
-      echo "Error: COMPOSE_PROFILES includes 'stunnel' but STUNNEL_PEM_SRC is not set"
-      exit 22
-    fi
-    # 目标文件（当前目录）
-    pem_dest="./${STUNNEL_PEM_DEST}"
-    maybe_overwrite "$pem_dest"
-    fetch_any "$STUNNEL_PEM_SRC" "$pem_dest"
-    [ -s "$pem_dest" ] || { echo "Error: empty pem file downloaded: $pem_dest"; exit 23; }
-    echo "[install] stunnel pem written -> $pem_dest"
-    ;;
-  *)
-    # profiles 不包含 stunnel —— 若设置了 STUNNEL_PEM_SRC，仅告警，不中止
-    if [ -n "${STUNNEL_PEM_SRC:-}" ]; then
-      echo "[install][warn] COMPOSE_PROFILES does not include 'stunnel', but STUNNEL_PEM_SRC is set; skip downloading."
-    fi
-    ;;
+  *,stunnel-mtls,*) HAS_STUNNEL_MTLS=1 ;;
 esac
+case "$_profiles_normalized" in
+  *,stunnel-https,*) HAS_STUNNEL_HTTPS=1 ;;
+esac
+
+verify_pem() {
+  # verify_pem <type> <file>
+  t="$1"; f="$2"
+  case "$t" in
+    ca|cert)
+      grep -q -- "-----BEGIN CERTIFICATE-----" "$f" || {
+        echo "Error: $f does not look like a certificate (missing BEGIN CERTIFICATE)"; exit 24;
+      }
+      ;;
+    key)
+      grep -Eq -- "-----BEGIN (ENCRYPTED )?([A-Z0-9 ]+ )?PRIVATE KEY-----" "$f" || {
+        echo "Error: $f does not look like a private key (missing BEGIN *PRIVATE KEY)"; exit 25;
+      }
+      ;;
+  esac
+}
+
+# 仅在需要时下载，并记录需要校验的目标文件
+REQ_FILES=""
+
+if [ "$HAS_STUNNEL_MTLS" -eq 1 ]; then
+  # stunnel-mtls：必须有 CA/CERT/KEY
+  if [ -z "${STUNNEL_CAFILE_SRC:-}" ] || [ -z "${STUNNEL_CERT_SRC:-}" ] || [ -z "${STUNNEL_KEY_SRC:-}" ]; then
+    echo "Error: 'stunnel-mtls' profile detected, but STUNNEL_CAFILE_SRC / STUNNEL_CERT_SRC / STUNNEL_KEY_SRC are not all set"
+    exit 22
+  fi
+
+  ca_dest="./${STUNNEL_CAFILE_DEST:-$(infer_basename_from_src "$STUNNEL_CAFILE_SRC")}"
+  cert_dest="./${STUNNEL_CERT_DEST:-$(infer_basename_from_src "$STUNNEL_CERT_SRC")}"
+  key_dest="./${STUNNEL_KEY_DEST:-$(infer_basename_from_src "$STUNNEL_KEY_SRC")}"
+
+  [ -n "${ca_dest##*/}" ]   || { echo "Error: cannot infer CA filename from STUNNEL_CAFILE_SRC"; exit 26; }
+  [ -n "${cert_dest##*/}" ] || { echo "Error: cannot infer cert filename from STUNNEL_CERT_SRC"; exit 26; }
+  [ -n "${key_dest##*/}" ]  || { echo "Error: cannot infer key filename from STUNNEL_KEY_SRC"; exit 26; }
+
+  maybe_overwrite "$ca_dest"
+  fetch_any "$STUNNEL_CAFILE_SRC" "$ca_dest"
+  [ -s "$ca_dest" ] || { echo "Error: empty CA file downloaded: $ca_dest"; exit 23; }
+  verify_pem ca "$ca_dest"
+  echo "[install] stunnel CA -> $ca_dest"
+
+  maybe_overwrite "$cert_dest"
+  fetch_any "$STUNNEL_CERT_SRC" "$cert_dest"
+  [ -s "$cert_dest" ] || { echo "Error: empty cert file downloaded: $cert_dest"; exit 23; }
+  verify_pem cert "$cert_dest"
+  echo "[install] stunnel cert -> $cert_dest"
+
+  maybe_overwrite "$key_dest"
+  fetch_any "$STUNNEL_KEY_SRC" "$key_dest"
+  [ -s "$key_dest" ] || { echo "Error: empty key file downloaded: $key_dest"; exit 23; }
+  verify_pem key "$key_dest"
+  chmod 600 "$key_dest" 2>/dev/null || true
+  echo "[install] stunnel key -> $key_dest"
+
+  REQ_FILES="$REQ_FILES $ca_dest $cert_dest $key_dest"
+
+elif [ "$HAS_STUNNEL_HTTPS" -eq 1 ]; then
+  # stunnel-https：只需要 CERT/KEY
+  if [ -z "${STUNNEL_CERT_SRC:-}" ] || [ -z "${STUNNEL_KEY_SRC:-}" ]; then
+    echo "Error: 'stunnel-https' profile detected, but STUNNEL_CERT_SRC / STUNNEL_KEY_SRC are not set"
+    exit 22
+  fi
+
+  cert_dest="./${STUNNEL_CERT_DEST:-$(infer_basename_from_src "$STUNNEL_CERT_SRC")}"
+  key_dest="./${STUNNEL_KEY_DEST:-$(infer_basename_from_src "$STUNNEL_KEY_SRC")}"
+
+  [ -n "${cert_dest##*/}" ] || { echo "Error: cannot infer cert filename from STUNNEL_CERT_SRC"; exit 26; }
+  [ -n "${key_dest##*/}" ]  || { echo "Error: cannot infer key filename from STUNNEL_KEY_SRC"; exit 26; }
+
+  maybe_overwrite "$cert_dest"
+  fetch_any "$STUNNEL_CERT_SRC" "$cert_dest"
+  [ -s "$cert_dest" ] || { echo "Error: empty cert file downloaded: $cert_dest"; exit 23; }
+  verify_pem cert "$cert_dest"
+  echo "[install] stunnel cert -> $cert_dest"
+
+  maybe_overwrite "$key_dest"
+  fetch_any "$STUNNEL_KEY_SRC" "$key_dest"
+  [ -s "$key_dest" ] || { echo "Error: empty key file downloaded: $key_dest"; exit 23; }
+  verify_pem key "$key_dest"
+  chmod 600 "$key_dest" 2>/dev/null || true
+  echo "[install] stunnel key -> $key_dest"
+
+  REQ_FILES="$REQ_FILES $cert_dest $key_dest"
+
+else
+  # 未启用 stunnel-mtls / stunnel-https，但设置了来源时，仅告警
+  if [ -n "${STUNNEL_CAFILE_SRC:-}" ] || [ -n "${STUNNEL_CERT_SRC:-}" ] || [ -n "${STUNNEL_KEY_SRC:-}" ]; then
+    echo "[install][warn] no 'stunnel-mtls' or 'stunnel-https' profile detected, but STUNNEL_*_SRC is set; skip downloading."
+  fi
+fi
 
 # ------------ 生成 .env ------------
 maybe_overwrite "$ENV_FILE"
 cp -f "$ENV_TEMPLATE_DEST" "$ENV_FILE"
 
-# 写入四个关键变量（其余保留模板原值）
+# 写入关键变量（其余保留模板原值）
 set_kv COMPOSE_PROJECT_NAME "$COMPOSE_PROJECT_NAME" "$ENV_FILE"
 set_kv HOSTNAME "$HOSTNAME" "$ENV_FILE"
-# [ddns-go] 仅在变量存在时写入，避免空值污染
 [ -n "${PUBLIC_IPV4_DOMAIN:-}" ]  && set_kv PUBLIC_IPV4_DOMAIN  "${PUBLIC_IPV4_DOMAIN:-}"  "$ENV_FILE"
 [ -n "${PRIVATE_IPV4_DOMAIN:-}" ] && set_kv PRIVATE_IPV4_DOMAIN "${PRIVATE_IPV4_DOMAIN:-}" "$ENV_FILE"
 
@@ -319,7 +433,7 @@ PRIVATE_IPV4_DOMAIN="${PRIVATE_IPV4_DOMAIN:-}" \
 $DCOMPOSE --env-file "$ENV_FILE" -f "$COMPOSE_DEST" -p "$COMPOSE_PROJECT_NAME" config -q
 
 # ------------ 可选构建 ------------
-# NO_IMAGE_CACHE=1 时：强制忽略缓存重新构建
+# NO_IMAGE_CACHE=1 时：强制忽略缓存重新构建（默认 1）
 if [ "${NO_IMAGE_CACHE:-1}" -eq 1 ]; then
   echo "[install] building images with --no-cache ..."
   COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT_NAME" \
@@ -334,6 +448,21 @@ else
   PUBLIC_IPV4_DOMAIN="${PUBLIC_IPV4_DOMAIN:-}" \
   PRIVATE_IPV4_DOMAIN="${PRIVATE_IPV4_DOMAIN:-}" \
   $DCOMPOSE --env-file "$ENV_FILE" -f "$COMPOSE_DEST" -p "$COMPOSE_PROJECT_NAME" build
+fi
+
+# ------------ 校验证书文件是否存在且非空 ------------
+# 仅在确实需要（启用 stunnel-mtls/https）时做本地文件校验
+if [ -n "${REQ_FILES# }" ]; then
+  for f in $REQ_FILES; do
+    if [ ! -f "$f" ]; then
+      echo "[install][ERR] missing file: $f"
+      exit 30
+    fi
+    if [ ! -s "$f" ]; then
+      echo "[install][ERR] empty file: $f"
+      exit 31
+    fi
+  done
 fi
 
 # ------------ 启动 ------------

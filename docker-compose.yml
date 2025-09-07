@@ -34,7 +34,12 @@ services:
       # Don't mount the file directly, otherwise before puller gets the file, docker would create
       # a folder with the conf file path wrongly.
       # TODO: should use a sub folder which only has conf file.
-      - ${CONF_DIR}:/app/etc:ro
+      - type: bind
+        source: ${CONF_DIR}
+        target: /app/etc
+        read_only: true
+        bind:
+          create_host_path: false   # ← 不存在则报错，禁止自动创建
     restart: unless-stopped
 
   liteflow-conf-watcher:
@@ -71,9 +76,14 @@ services:
       CONF_FILE: /app/etc/${CONF_FILE}
     volumes:
       # 必须映射整个目录，不能仅映射单个liteflow.conf文件，否则mv等动作无法被捕捉。
-      - ${CONF_DIR}:/app/etc:ro
+      - type: bind
+        source: ${CONF_DIR}
+        target: /app/etc
+        read_only: true
+        bind:
+          create_host_path: false
     restart: unless-stopped
-    
+
   liteflow-conf-puller:
     profiles: ["puller"]
     build:
@@ -98,8 +108,18 @@ services:
       # BACKUP: "1"                                  # 可选：覆盖前备份
       FORCE: "1"                                   # 可选：未开启 BACKUP 时允许覆盖
     volumes:
-      - ${CONF_DIR}:/app/etc:rw
-      - ${HOME}/.ssh:/root/.ssh:ro
+      - type: bind
+        source: ${CONF_DIR}
+        target: /app/etc
+        read_only: false
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${HOME}/.ssh
+        target: /root/.ssh
+        read_only: true
+        bind:
+          create_host_path: false
     restart: unless-stopped
 
   ss-local:
@@ -196,7 +216,12 @@ services:
       retries: 5
       start_period: 5s
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+        read_only: true
+        bind:
+          create_host_path: false
     restart: unless-stopped
 
   ddns-go:
@@ -280,7 +305,18 @@ services:
       RUN_AS_ROOT: ${STUNNEL_HTTPS_RUN_AS_ROOT}
       DEBUG: ${STUNNEL_HTTPS_DEBUG}
     volumes:
-      - ${CONF_DIR}/stunnel.pem:/app/etc/stunnel.pem:ro
+      - type: bind
+        source: ${CONF_DIR}/${STUNNEL_HTTPS_CERT_FILENAME}
+        target: ${STUNNEL_HTTPS_CERT}
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${CONF_DIR}/${STUNNEL_HTTPS_KEY_FILENAME}
+        target: ${STUNNEL_HTTPS_KEY}
+        read_only: true
+        bind:
+          create_host_path: false
     restart: unless-stopped
 
   stunnel-mtls:
@@ -317,7 +353,24 @@ services:
       RUN_AS_ROOT: ${STUNNEL_MTLS_RUN_AS_ROOT}
       DEBUG: ${STUNNEL_MTLS_DEBUG}
     volumes:
-      - ${CONF_DIR}/stunnel.pem:/app/etc/stunnel.pem:ro
+      - type: bind
+        source: ${CONF_DIR}/${STUNNEL_MTLS_CERT_FILENAME}
+        target: ${STUNNEL_MTLS_CERT}
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${CONF_DIR}/${STUNNEL_MTLS_KEY_FILENAME}
+        target: ${STUNNEL_MTLS_KEY}
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${CONF_DIR}/${STUNNEL_MTLS_CAFILE_FILENAME}
+        target: ${STUNNEL_MTLS_CAFILE}
+        read_only: true
+        bind:
+          create_host_path: false
     restart: unless-stopped
 
   xray-http:
