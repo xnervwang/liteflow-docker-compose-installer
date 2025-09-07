@@ -50,7 +50,7 @@ services:
       liteflow:
         condition: service_healthy
       dockerproxy:
-        condition: service_started
+        condition: service_healthy
     # 不要使用host网络，否则无法连接dockerproxy，因为后者不使用host网络。
     healthcheck:
       test:
@@ -247,13 +247,16 @@ services:
       WEB_PASSWORD_HASH: ${DDNS_GO_WEB_PASSWORD_HASH}
     restart: unless-stopped
 
-  stunnel:
-    profiles: ["stunnel"]
+  stunnel-https:
+    profiles: ["stunnel-https"]
     build:
       context: https://github.com/xnervwang/stunnel5-docker.git#main
       network: host
     image: xnervwang/stunnel5-docker:main
     pull_policy: never
+    depends_on:
+      xray-http:
+        condition: service_healthy
     network_mode: host
     cap_add:
       - NET_BIND_SERVICE
@@ -268,57 +271,123 @@ services:
       retries: 5
       start_period: 5s
     environment:
-      SERVICE_NAME: ${STUNNEL_SERVICE_NAME}
-      CLIENT: ${STUNNEL_CLIENT}
-      ACCEPT: ${STUNNEL_ACCEPT}
-      CONNECT: ${STUNNEL_CONNECT}
-      CERT: ${STUNNEL_CERT}
-      KEY: ${STUNNEL_KEY}
-      CAFILE: ${STUNNEL_CAFILE}
-      RUN_AS_ROOT: "yes"
-      STUNNEL_DEBUG: debug
-      STUNNEL_LOGID: sequential
-      STUNNEL_OUTPUT: /dev/stdout
+      MODE: https-proxy
+      SERVICE_NAME: ${STUNNEL_HTTPS_SERVICE_NAME}
+      ACCEPT: ${STUNNEL_HTTPS_ACCEPT}
+      CONNECT: ${STUNNEL_HTTPS_CONNECT}
+      CERT: ${STUNNEL_HTTPS_CERT}
+      KEY: ${STUNNEL_HTTPS_KEY}
+      RUN_AS_ROOT: ${STUNNEL_HTTPS_RUN_AS_ROOT}
+      DEBUG: ${STUNNEL_HTTPS_DEBUG}
     volumes:
       - ${CONF_DIR}/stunnel.pem:/app/etc/stunnel.pem:ro
     restart: unless-stopped
 
-  xray:
-    profiles: ["xray"]
+  stunnel-mtls:
+    profiles: ["stunnel-mtls"]
+    build:
+      context: https://github.com/xnervwang/stunnel5-docker.git#main
+      network: host
+    image: xnervwang/stunnel5-docker:main
+    pull_policy: never
+    depends_on:
+      ss-local:
+        condition: service_healthy
+    network_mode: host
+    cap_add:
+      - NET_BIND_SERVICE
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - |
+          hex=$(printf "%04X" $${ACCEPT##*:})
+          awk -v h="$$hex" 'NR>1{split($2,a,":"); if(a[2]==h && $4=="0A") f=1} END{exit f?0:1}' /proc/net/tcp /proc/net/tcp6
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    environment:
+      MODE: mtls-server
+      SERVICE_NAME: ${STUNNEL_MTLS_SERVICE_NAME}
+      ACCEPT: ${STUNNEL_MTLS_ACCEPT}
+      CONNECT: ${STUNNEL_MTLS_CONNECT}
+      CERT: ${STUNNEL_MTLS_CERT}
+      KEY: ${STUNNEL_MTLS_KEY}
+      CAFILE: ${STUNNEL_MTLS_CAFILE}
+      RUN_AS_ROOT: ${STUNNEL_MTLS_RUN_AS_ROOT}
+      DEBUG: ${STUNNEL_MTLS_DEBUG}
+    volumes:
+      - ${CONF_DIR}/stunnel.pem:/app/etc/stunnel.pem:ro
+    restart: unless-stopped
+
+  xray-http:
+    profiles: ["xray-http"]
     build:
       context: https://github.com/xnervwang/xray-docker.git#main
       network: host
     image: xnervwang/xray:latest
+    depends_on:
+      ss-local:
+        condition: service_healthy
     network_mode: host
     environment:
-      LOG_LEVEL: ${XRAY_LOG_LEVEL}
-      SOCKS_LISTEN_PORT: "${XRAY_SOCKS_LISTEN_PORT}"
-      SOCKS_LISTEN_IP: ${XRAY_SOCKS_LISTEN_IP}
+      MODE: http
+      LOG_LEVEL: ${XRAY_HTTP_LOG_LEVEL}
       HTTP_LISTEN_PORT: "${XRAY_HTTP_LISTEN_PORT}"
       HTTP_LISTEN_IP: ${XRAY_HTTP_LISTEN_IP}
-      HTTP_USERNAME_1: ${XRAY_HTTP_USERNAME_1}
-      HTTP_PASSWORD_1: ${XRAY_HTTP_PASSWORD_1}
-      HTTP_USERNAME_2: ${XRAY_HTTP_USERNAME_2}
-      HTTP_PASSWORD_2: ${XRAY_HTTP_PASSWORD_2}
-      OUTBOUND_PROTOCOL: ${XRAY_OUTBOUND_PROTOCOL}
-      OUTBOUND_IP: ${XRAY_OUTBOUND_IP}
-      OUTBOUND_PORT: "${XRAY_OUTBOUND_PORT}"
-      RULE_PRIVATE_IP: ${XRAY_RULE_PRIVATE_IP}
-      RULE_PROXY_SITE: ${XRAY_RULE_PROXY_SITE}
-      RULE_PROXY_IP: ${XRAY_RULE_PROXY_IP}
+      HTTP_ACCOUNTS_JSON: ${XRAY_HTTP_ACCOUNTS_JSON}
+      OUTBOUND_PROTOCOL: ${XRAY_HTTP_OUTBOUND_PROTOCOL}
+      OUTBOUND_IP: ${XRAY_HTTP_OUTBOUND_IP}
+      OUTBOUND_PORT: "${XRAY_HTTP_OUTBOUND_PORT}"
+      RULE_PRIVATE_IP: ${XRAY_HTTP_RULE_PRIVATE_IP}
+      RULE_PROXY_SITE: ${XRAY_HTTP_RULE_PROXY_SITE}
+      RULE_PROXY_IP: ${XRAY_HTTP_RULE_PROXY_IP}
     healthcheck:
       test:
         - CMD-SHELL
         - |
           # Log port values only
-          echo "[hc] SOCKS_PORT=$${SOCKS_LISTEN_PORT} HTTP_PORT=$${HTTP_LISTEN_PORT}"
+          echo "[hc] HTTP_PORT=$${HTTP_LISTEN_PORT}"
+
+          # Check HTTP port LISTEN
+          hex=$(printf "%04X" "$${HTTP_LISTEN_PORT}")
+          awk -v h="$$hex" 'NR>1{split($2,a,":"); if(a[2]==h && $4=="0A") f=1} END{exit f?0:1}' /proc/net/tcp /proc/net/tcp6
+      interval: 15s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  xray-socks:
+    profiles: ["xray-socks"]
+    build:
+      context: https://github.com/xnervwang/xray-docker.git#main
+      network: host
+    image: xnervwang/xray:latest
+    depends_on:
+      ss-local:
+        condition: service_healthy
+    network_mode: host
+    environment:
+      MODE: socks
+      LOG_LEVEL: ${XRAY_SOCKS_LOG_LEVEL}
+      SOCKS_LISTEN_PORT: "${XRAY_SOCKS_LISTEN_PORT}"
+      SOCKS_LISTEN_IP: ${XRAY_SOCKS_LISTEN_IP}
+      OUTBOUND_PROTOCOL: ${XRAY_SOCKS_OUTBOUND_PROTOCOL}
+      OUTBOUND_IP: ${XRAY_SOCKS_OUTBOUND_IP}
+      OUTBOUND_PORT: "${XRAY_SOCKS_OUTBOUND_PORT}"
+      RULE_PRIVATE_IP: ${XRAY_SOCKS_RULE_PRIVATE_IP}
+      RULE_PROXY_SITE: ${XRAY_SOCKS_RULE_PROXY_SITE}
+      RULE_PROXY_IP: ${XRAY_SOCKS_RULE_PROXY_IP}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - |
+          # Log port values only
+          echo "[hc] SOCKS_PORT=$${SOCKS_LISTEN_PORT}"
 
           # Check SOCKS port LISTEN
           hex=$(printf "%04X" $${SOCKS_LISTEN_PORT})
-          awk -v h="$$hex" 'NR>1{split($2,a,":"); if(a[2]==h && $4=="0A") f=1} END{exit f?0:1}' /proc/net/tcp /proc/net/tcp6 &&
-
-          # Check HTTP port LISTEN
-          hex=$(printf "%04X" $${HTTP_LISTEN_LISTEN_PORT:-$${HTTP_LISTEN_PORT}})
           awk -v h="$$hex" 'NR>1{split($2,a,":"); if(a[2]==h && $4=="0A") f=1} END{exit f?0:1}' /proc/net/tcp /proc/net/tcp6
       interval: 15s
       timeout: 3s
